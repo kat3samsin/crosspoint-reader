@@ -33,6 +33,17 @@ CACHE_STATES = frozenset({"hit", "miss", "unknown"})
 PAGE_DIRECTIONS = frozenset({"forward", "backward"})
 PAGE_REFRESH_MODES = frozenset({"fast", "half"})
 PAGE_FONT_SIZES = frozenset({0, 1, 2, 3})
+AUTOMATED_PAGE_TURN_COUNT = 20
+AUTOMATED_PAGE_TURN_SETTLE_MS = 3000
+PAGE_TURN_START_RE = re.compile(
+    r"^PERF_CONTROL page_turn_auto started count=(?P<count>\d+) "
+    r"settle_ms=(?P<settle_ms>\d+) spine=(?P<spine>\d+) "
+    r"page_a=(?P<page_a>\d+) page_b=(?P<page_b>\d+)$"
+)
+PAGE_TURN_DONE_RE = re.compile(
+    r"^PERF_CONTROL page_turn_auto done count=(?P<count>\d+) "
+    r"spine=(?P<spine>\d+) page=(?P<page>\d+)$"
+)
 
 
 class PerfRecordError(ValueError):
@@ -372,7 +383,9 @@ def print_summary(
         )
 
 
-def collect_serial(port: str, baud: int, timeout: float, echo: bool) -> Iterable[str]:
+def collect_serial(
+    port: str, baud: int, timeout: float, echo: bool, drive_page_turns: bool = False
+) -> Iterable[str]:
     try:
         import serial  # type: ignore[import-not-found]
     except ImportError as exc:
@@ -381,28 +394,158 @@ def collect_serial(port: str, baud: int, timeout: float, echo: bool) -> Iterable
         ) from exc
 
     deadline = time.monotonic() + timeout
+    command_issued = False
+    driven_queued = False
+    driven_start: tuple[int, int] | None = None
+    driven_records: list[tuple[str, PerfRecord]] = []
     while time.monotonic() < deadline:
         framer = LineFramer()
         try:
             with serial.Serial(port, baud, timeout=0.25) as connection:
+                if drive_page_turns:
+                    connection.reset_input_buffer()
+                    command = b"CMD:PERF_PAGE_TURNS_20\n"
+                    command_issued = True
+                    if connection.write(command) != len(command):
+                        raise PerfRecordError(
+                            "short serial write for page-turn command"
+                        )
+                    connection.flush()
                 while time.monotonic() < deadline:
                     chunk = connection.read(connection.in_waiting or 1)
                     if not chunk:
                         continue
                     for line in framer.feed(chunk):
                         if echo:
-                            print(line)
-                        yield line
+                            print(line, flush=True)
+                        if not drive_page_turns:
+                            yield line
+                            continue
+
+                        if line.startswith("PERF_CONTROL page_turn_auto error="):
+                            raise PerfRecordError(line.removeprefix("PERF_CONTROL "))
+
+                        if line.startswith("PERF_CONTROL page_turn_auto started"):
+                            match = PAGE_TURN_START_RE.fullmatch(line)
+                            if match is None:
+                                raise PerfRecordError(
+                                    "malformed page_turn_auto started marker"
+                                )
+                            if not driven_queued:
+                                raise PerfRecordError(
+                                    "page_turn_auto started before queued"
+                                )
+                            if driven_start is not None:
+                                raise PerfRecordError(
+                                    "duplicate page_turn_auto started marker"
+                                )
+                            count = int(match["count"])
+                            settle_ms = int(match["settle_ms"])
+                            spine = int(match["spine"])
+                            page_a = int(match["page_a"])
+                            page_b = int(match["page_b"])
+                            if count != AUTOMATED_PAGE_TURN_COUNT:
+                                raise PerfRecordError(
+                                    "unexpected automated page-turn count"
+                                )
+                            if settle_ms != AUTOMATED_PAGE_TURN_SETTLE_MS:
+                                raise PerfRecordError(
+                                    "unexpected automated page-turn settling interval"
+                                )
+                            if page_b != page_a + 1:
+                                raise PerfRecordError(
+                                    "automated pages A and B are not adjacent"
+                                )
+                            driven_start = (spine, page_a)
+                            continue
+
+                        if line.startswith("PERF_CONTROL page_turn_auto done"):
+                            match = PAGE_TURN_DONE_RE.fullmatch(line)
+                            if match is None:
+                                raise PerfRecordError(
+                                    "malformed page_turn_auto done marker"
+                                )
+                            if driven_start is None:
+                                raise PerfRecordError(
+                                    "page_turn_auto done before started"
+                                )
+                            count = int(match["count"])
+                            spine = int(match["spine"])
+                            page = int(match["page"])
+                            if count != AUTOMATED_PAGE_TURN_COUNT:
+                                raise PerfRecordError(
+                                    "unexpected completed page-turn count"
+                                )
+                            if (spine, page) != driven_start:
+                                raise PerfRecordError(
+                                    "automated page-turn run did not finish on page A"
+                                )
+                            if len(driven_records) != AUTOMATED_PAGE_TURN_COUNT:
+                                raise PerfRecordError(
+                                    "page_turn_auto done without exactly 20 PERF records"
+                                )
+                            first = driven_records[0][1]
+                            last = driven_records[-1][1]
+                            start_spine, page_a = driven_start
+                            if (
+                                first.fields["direction"] != "forward"
+                                or first.fields["spine_index"] != start_spine
+                                or first.fields["from_page"] != page_a
+                                or first.fields["to_page"] != page_a + 1
+                                or last.fields["spine_index"] != start_spine
+                                or last.fields["to_page"] != page_a
+                            ):
+                                raise PerfRecordError(
+                                    "PERF records do not match the automated A/B run"
+                                )
+                            for record_line, _record in driven_records:
+                                yield record_line
+                            return
+
+                        if line.startswith("PERF_CONTROL page_turn_auto"):
+                            if line != "PERF_CONTROL page_turn_auto queued":
+                                raise PerfRecordError(
+                                    "unknown page_turn_auto control marker"
+                                )
+                            if driven_queued or driven_start is not None:
+                                raise PerfRecordError(
+                                    "duplicate page_turn_auto queued marker"
+                                )
+                            driven_queued = True
+                            continue
+
+                        if line.startswith("PERF "):
+                            if driven_start is None:
+                                continue
+                            record = parse_perf_line(line)
+                            if (
+                                record is None
+                                or record.scenario != "page_turn_in_section"
+                            ):
+                                raise PerfRecordError(
+                                    "unexpected PERF scenario during automated page turns"
+                                )
+                            if len(driven_records) >= AUTOMATED_PAGE_TURN_COUNT:
+                                raise PerfRecordError(
+                                    "more than 20 PERF records before page_turn_auto done"
+                                )
+                            driven_records.append((line, record))
 
             partial = framer.take_partial()
             if partial.startswith(b"PERF "):
                 raise PerfRecordError("collection ended with a partial PERF record")
+            if drive_page_turns:
+                raise PerfRecordError("page_turn_auto did not finish before timeout")
             return
         except (serial.SerialException, OSError) as exc:
             partial = framer.take_partial()
             if partial.startswith(b"PERF "):
                 raise PerfRecordError(
                     "serial disconnect left a partial PERF record"
+                ) from exc
+            if drive_page_turns and command_issued:
+                raise PerfRecordError(
+                    "serial disconnected after page-turn command; rerun the benchmark"
                 ) from exc
             remaining = deadline - time.monotonic()
             if remaining <= 0:
@@ -439,6 +582,11 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--echo", action="store_true", help="echo live serial lines to stdout"
     )
+    parser.add_argument(
+        "--drive-page-turns",
+        action="store_true",
+        help="trigger one automated 20-turn A/B run after opening the serial port",
+    )
     return parser
 
 
@@ -448,6 +596,15 @@ def main(argv: list[str] | None = None) -> int:
         raise SystemExit("--port cannot be combined with input files")
     if args.samples is not None and args.samples <= 0:
         raise SystemExit("--samples must be positive")
+    if args.drive_page_turns and (
+        not args.port or args.scenario != "page_turn_in_section" or args.samples != 20
+    ):
+        print(
+            "error: --drive-page-turns requires --port, "
+            "--scenario page_turn_in_section, and --samples 20",
+            file=sys.stderr,
+        )
+        return 2
     if args.output:
         if not args.label.strip():
             print("error: --label must be non-empty", file=sys.stderr)
@@ -472,7 +629,13 @@ def main(argv: list[str] | None = None) -> int:
     opened: list[TextIO] = []
     try:
         if args.port:
-            lines = collect_serial(args.port, args.baud, args.timeout, args.echo)
+            lines = collect_serial(
+                args.port,
+                args.baud,
+                args.timeout,
+                args.echo,
+                args.drive_page_turns,
+            )
         elif args.inputs:
             opened = [
                 path.open(encoding="utf-8", errors="replace") for path in args.inputs
@@ -481,7 +644,8 @@ def main(argv: list[str] | None = None) -> int:
         else:
             lines = sys.stdin
 
-        records = collect_records(lines, args.scenario, args.samples)
+        sample_limit = None if args.drive_page_turns else args.samples
+        records = collect_records(lines, args.scenario, sample_limit)
     except (OSError, RuntimeError, PerfRecordError) as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 2

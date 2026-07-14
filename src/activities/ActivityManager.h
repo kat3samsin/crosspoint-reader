@@ -103,6 +103,9 @@ class ActivityManager {
   bool preventAutoSleep() const;
   bool isReaderActivity() const;
   bool skipLoopDelay() const;
+#ifdef ENABLE_PERF_BENCHMARK
+  bool queueAutomatedPageTurns();
+#endif
   ScreenshotInfo getScreenshotInfo() const;
 
   // If immediate is true, the update will be triggered immediately.
