@@ -18,18 +18,21 @@ from typing import Iterable, TextIO
 
 MAX_RECORD_BYTES = 512
 RECONNECT_DELAY_SECONDS = 0.25
-REPORT_SCHEMA = 2
+PERF_RECORD_VERSION = 2
+REPORT_SCHEMA = 3
 PROVENANCE_FIELDS = ("device_id", "device_model", "protocol_id")
 SCENARIO_RE = re.compile(r"^[a-z][a-z0-9_]*$")
 DIMENSION_KEYS = {
     "boot_to_home": (),
     "book_open": ("epub_index_cache", "managed"),
     "epub_load": ("epub_index_cache",),
-    "page_turn_in_section": ("direction",),
+    "page_turn_in_section": (),
     "readest_probe": ("managed",),
 }
 CACHE_STATES = frozenset({"hit", "miss", "unknown"})
 PAGE_DIRECTIONS = frozenset({"forward", "backward"})
+PAGE_REFRESH_MODES = frozenset({"fast", "half"})
+PAGE_FONT_SIZES = frozenset({0, 1, 2, 3})
 
 
 class PerfRecordError(ValueError):
@@ -105,8 +108,8 @@ def _required_field(
     return fields[field]
 
 
-def _require_uint32(fields: dict[str, str | int | bool], field: str) -> None:
-    _non_negative_int(_required_field(fields, field), field)
+def _require_uint32(fields: dict[str, str | int | bool], field: str) -> int:
+    return _non_negative_int(_required_field(fields, field), field)
 
 
 def _require_bool(fields: dict[str, str | int | bool], field: str) -> None:
@@ -136,6 +139,19 @@ def _validate_scenario_fields(
         _require_bool(fields, "managed")
     elif scenario == "page_turn_in_section":
         _require_enum(fields, "direction", PAGE_DIRECTIONS)
+        _require_uint32(fields, "spine_index")
+        from_page = _require_uint32(fields, "from_page")
+        to_page = _require_uint32(fields, "to_page")
+        font_size = _require_uint32(fields, "font_size")
+        if font_size not in PAGE_FONT_SIZES:
+            raise PerfRecordError("font_size must be one of: 0, 1, 2, 3")
+        _require_bool(fields, "text_antialiasing")
+        _require_enum(fields, "refresh_mode", PAGE_REFRESH_MODES)
+        direction = fields["direction"]
+        if direction == "forward" and to_page != from_page + 1:
+            raise PerfRecordError("forward page turn must advance exactly one page")
+        if direction == "backward" and from_page != to_page + 1:
+            raise PerfRecordError("backward page turn must retreat exactly one page")
 
 
 def parse_perf_line(line: str) -> PerfRecord | None:
@@ -168,7 +184,7 @@ def parse_perf_line(line: str) -> PerfRecord | None:
         raise PerfRecordError(f"missing field(s): {', '.join(sorted(missing))}")
 
     version = _non_negative_int(payload.pop("v"), "v")
-    if version != 1:
+    if version != PERF_RECORD_VERSION:
         raise PerfRecordError(f"unsupported version: {version}")
     scenario = payload.pop("scenario")
     if not isinstance(scenario, str) or not SCENARIO_RE.fullmatch(scenario):
@@ -229,6 +245,72 @@ def collect_records(
         if samples is not None and matching >= samples:
             break
     return records
+
+
+def build_benchmark_context(
+    records: Iterable[PerfRecord],
+) -> dict[str, object]:
+    """Build non-grouping page trace provenance and reject mixed settings."""
+
+    page_records = [
+        record for record in records if record.scenario == "page_turn_in_section"
+    ]
+    if not page_records:
+        return {}
+
+    first = page_records[0]
+    constants = {
+        "font_size": first.fields["font_size"],
+        "text_antialiasing": first.fields["text_antialiasing"],
+    }
+    if len(page_records) < 2 or len(page_records) % 2 != 0:
+        raise PerfRecordError(
+            "page_turn_in_section report requires an even alternating two-page trace"
+        )
+    first_from = (
+        first.fields["spine_index"],
+        first.fields["from_page"],
+    )
+    first_to = (first.fields["spine_index"], first.fields["to_page"])
+    trace: list[dict[str, str | int | bool]] = []
+    previous_iteration: int | None = None
+    for index, record in enumerate(page_records):
+        for field, expected in constants.items():
+            if record.fields[field] != expected:
+                raise PerfRecordError(
+                    f"page_turn_in_section {field} changed within the report"
+                )
+        if (
+            previous_iteration is not None
+            and record.iteration != previous_iteration + 1
+        ):
+            raise PerfRecordError("page_turn_in_section iterations must be consecutive")
+        previous_iteration = record.iteration
+        expected_from, expected_to = (
+            (first_from, first_to) if index % 2 == 0 else (first_to, first_from)
+        )
+        actual_from = (record.fields["spine_index"], record.fields["from_page"])
+        actual_to = (record.fields["spine_index"], record.fields["to_page"])
+        if (actual_from, actual_to) != (expected_from, expected_to):
+            raise PerfRecordError(
+                "page_turn_in_section trace must alternate between exactly two pages"
+            )
+        trace.append(
+            {
+                "direction": record.fields["direction"],
+                "spine_index": record.fields["spine_index"],
+                "from_page": record.fields["from_page"],
+                "to_page": record.fields["to_page"],
+                "refresh_mode": record.fields["refresh_mode"],
+            }
+        )
+
+    return {
+        "page_turn_in_section": {
+            **constants,
+            "trace": trace,
+        }
+    }
 
 
 def _nearest_rank(values: list[float], percentile: float) -> float:
@@ -420,6 +502,12 @@ def main(argv: list[str] | None = None) -> int:
         print(f"error: no {args.scenario} records found", file=sys.stderr)
         return 2
 
+    try:
+        benchmark_context = build_benchmark_context(records)
+    except PerfRecordError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 2
+
     summaries = summarize(records)
     print_summary(summaries)
     if args.output:
@@ -428,6 +516,7 @@ def main(argv: list[str] | None = None) -> int:
             "label": args.label,
             "generated_at": datetime.now(timezone.utc).isoformat(),
             "provenance": provenance,
+            "benchmark_context": benchmark_context,
             "records": [record.to_dict() for record in records],
             "summary": summaries,
         }

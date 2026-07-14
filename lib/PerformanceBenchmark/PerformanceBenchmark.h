@@ -4,6 +4,8 @@
 
 namespace PerformanceBenchmark {
 
+enum class PageRefreshMode : uint8_t { UNKNOWN, FAST, HALF, IMAGE };
+
 #ifdef ENABLE_PERF_BENCHMARK
 
 uint32_t nowUs();
@@ -13,7 +15,9 @@ void beginBookOpen();
 void setBookCacheHit(bool cacheHit);
 void recordEpubLoad(uint32_t startedAtUs, bool cacheHit);
 void finishBookOpen();
-void beginPageTurn(bool forward);
+void beginPageTurn(bool forward, uint32_t spineIndex, uint32_t fromPage, uint32_t toPage,
+                   uint8_t fontSize, bool textAntialiasing);
+void setPageTurnRefreshMode(PageRefreshMode refreshMode);
 void finishPageTurn();
 
 #else
@@ -25,7 +29,8 @@ inline void beginBookOpen() {}
 inline void setBookCacheHit(bool) {}
 inline void recordEpubLoad(uint32_t, bool) {}
 inline void finishBookOpen() {}
-inline void beginPageTurn(bool) {}
+inline void beginPageTurn(bool, uint32_t, uint32_t, uint32_t, uint8_t, bool) {}
+inline void setPageTurnRefreshMode(PageRefreshMode) {}
 inline void finishPageTurn() {}
 
 #endif

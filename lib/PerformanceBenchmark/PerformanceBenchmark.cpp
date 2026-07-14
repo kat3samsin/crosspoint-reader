@@ -19,6 +19,12 @@ bool epubLoadPending = false;
 bool bookCacheKnown = false;
 bool bookCacheHit = false;
 bool pageTurnForward = true;
+uint32_t pageTurnSpineIndex = 0;
+uint32_t pageTurnFromPage = 0;
+uint32_t pageTurnToPage = 0;
+uint8_t pageTurnFontSize = 0;
+bool pageTurnTextAntialiasing = false;
+PageRefreshMode pageTurnRefreshMode = PageRefreshMode::UNKNOWN;
 bool bootToHomePending = false;
 uint32_t epubLoadDurationUs = 0;
 uint32_t epubLoadHeapFreeBytes = 0;
@@ -33,6 +39,20 @@ const char* cacheName(const bool known, const bool hit) {
   return hit ? "hit" : "miss";
 }
 
+const char* refreshModeName(const PageRefreshMode refreshMode) {
+  switch (refreshMode) {
+    case PageRefreshMode::FAST:
+      return "fast";
+    case PageRefreshMode::HALF:
+      return "half";
+    case PageRefreshMode::IMAGE:
+      return "image";
+    case PageRefreshMode::UNKNOWN:
+    default:
+      return "unknown";
+  }
+}
+
 }  // namespace
 
 uint32_t nowUs() { return micros(); }
@@ -45,7 +65,7 @@ void recordHomePaint() {
   const uint32_t heapFreeBytes = ESP.getFreeHeap();
   bootToHomePending = false;
   logSerial.printf(
-      "PERF {\"v\":1,\"scenario\":\"boot_to_home\",\"iteration\":1,\"duration_us\":%lu,"
+      "PERF {\"v\":2,\"scenario\":\"boot_to_home\",\"iteration\":1,\"duration_us\":%lu,"
       "\"heap_free_bytes\":%lu}\n",
       static_cast<unsigned long>(durationUs), static_cast<unsigned long>(heapFreeBytes));
 }
@@ -77,7 +97,7 @@ void finishBookOpen() {
   const uint32_t heapFreeBytes = ESP.getFreeHeap();
   bookOpenPending = false;
   logSerial.printf(
-      "PERF {\"v\":1,\"scenario\":\"book_open\",\"iteration\":%lu,\"duration_us\":%lu,"
+      "PERF {\"v\":2,\"scenario\":\"book_open\",\"iteration\":%lu,\"duration_us\":%lu,"
       "\"epub_index_cache\":\"%s\",\"managed\":false,\"heap_free_bytes\":%lu}\n",
       static_cast<unsigned long>(bookIteration), static_cast<unsigned long>(durationUs),
       cacheName(bookCacheKnown, bookCacheHit), static_cast<unsigned long>(heapFreeBytes));
@@ -85,7 +105,7 @@ void finishBookOpen() {
   // its serial write cannot inflate book_open.
   if (epubLoadPending) {
     logSerial.printf(
-        "PERF {\"v\":1,\"scenario\":\"epub_load\",\"iteration\":%lu,\"duration_us\":%lu,"
+        "PERF {\"v\":2,\"scenario\":\"epub_load\",\"iteration\":%lu,\"duration_us\":%lu,"
         "\"epub_index_cache\":\"%s\",\"heap_free_bytes\":%lu}\n",
         static_cast<unsigned long>(bookIteration), static_cast<unsigned long>(epubLoadDurationUs),
         cacheName(bookCacheKnown, bookCacheHit), static_cast<unsigned long>(epubLoadHeapFreeBytes));
@@ -93,7 +113,8 @@ void finishBookOpen() {
   }
 }
 
-void beginPageTurn(const bool forward) {
+void beginPageTurn(const bool forward, const uint32_t spineIndex, const uint32_t fromPage,
+                   const uint32_t toPage, const uint8_t fontSize, const bool textAntialiasing) {
   if (pageTurnPending) {
     // Multiple inputs before the panel paint completes are coalesced into one
     // render. Discard that ambiguous sample instead of attributing it to the
@@ -104,8 +125,18 @@ void beginPageTurn(const bool forward) {
   pageTurnIteration++;
   pageTurnStartedAtUs = nowUs();
   pageTurnForward = forward;
+  pageTurnSpineIndex = spineIndex;
+  pageTurnFromPage = fromPage;
+  pageTurnToPage = toPage;
+  pageTurnFontSize = fontSize;
+  pageTurnTextAntialiasing = textAntialiasing;
+  pageTurnRefreshMode = PageRefreshMode::UNKNOWN;
   pageTurnPending = true;
   pageTurnOverlapped = false;
+}
+
+void setPageTurnRefreshMode(const PageRefreshMode refreshMode) {
+  if (pageTurnPending) pageTurnRefreshMode = refreshMode;
 }
 
 void finishPageTurn() {
@@ -119,10 +150,15 @@ void finishPageTurn() {
   const uint32_t heapFreeBytes = ESP.getFreeHeap();
   pageTurnPending = false;
   logSerial.printf(
-      "PERF {\"v\":1,\"scenario\":\"page_turn_in_section\",\"iteration\":%lu,\"duration_us\":%lu,"
-      "\"direction\":\"%s\",\"heap_free_bytes\":%lu}\n",
+      "PERF {\"v\":2,\"scenario\":\"page_turn_in_section\",\"iteration\":%lu,\"duration_us\":%lu,"
+      "\"direction\":\"%s\",\"spine_index\":%lu,\"from_page\":%lu,\"to_page\":%lu,"
+      "\"font_size\":%u,\"text_antialiasing\":%s,\"refresh_mode\":\"%s\","
+      "\"heap_free_bytes\":%lu}\n",
       static_cast<unsigned long>(pageTurnIteration), static_cast<unsigned long>(durationUs),
-      pageTurnForward ? "forward" : "backward", static_cast<unsigned long>(heapFreeBytes));
+      pageTurnForward ? "forward" : "backward", static_cast<unsigned long>(pageTurnSpineIndex),
+      static_cast<unsigned long>(pageTurnFromPage), static_cast<unsigned long>(pageTurnToPage),
+      static_cast<unsigned>(pageTurnFontSize), pageTurnTextAntialiasing ? "true" : "false",
+      refreshModeName(pageTurnRefreshMode), static_cast<unsigned long>(heapFreeBytes));
 }
 
 }  // namespace PerformanceBenchmark

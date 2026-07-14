@@ -7,7 +7,7 @@ import argparse
 import json
 import math
 import sys
-from dataclasses import dataclass
+from dataclasses import dataclass, field as dataclass_field
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import TextIO
@@ -16,6 +16,7 @@ from perf_collect import (
     PROVENANCE_FIELDS,
     REPORT_SCHEMA,
     PerfRecordError,
+    build_benchmark_context,
     parse_perf_line,
     paths_alias,
     summarize,
@@ -36,6 +37,7 @@ class PerfReport:
     label: str
     provenance: dict[str, str]
     groups: dict[GroupKey, dict[str, object]]
+    benchmark_context: dict[str, object] = dataclass_field(default_factory=dict)
 
 
 def _object_without_duplicate_keys(
@@ -141,7 +143,20 @@ def load_report(path: Path) -> PerfReport:
     if supplied_groups != recomputed_groups:
         raise PerfReportError(f"{path}: summary does not match raw records")
 
-    return PerfReport(label=label, provenance=provenance, groups=recomputed_groups)
+    try:
+        recomputed_context = build_benchmark_context(records)
+    except PerfRecordError as exc:
+        raise PerfReportError(f"{path}: invalid benchmark context: {exc}") from exc
+    raw_context = payload.get("benchmark_context")
+    if not isinstance(raw_context, dict) or raw_context != recomputed_context:
+        raise PerfReportError(f"{path}: benchmark context does not match raw records")
+
+    return PerfReport(
+        label=label,
+        provenance=provenance,
+        groups=recomputed_groups,
+        benchmark_context=recomputed_context,
+    )
 
 
 def _duration_reduction_percent(baseline_ms: float, candidate_ms: float) -> float:
@@ -163,6 +178,8 @@ def compare_reports(
         raise PerfReportError("baseline and candidate labels must differ")
     if baseline.provenance != candidate.provenance:
         raise PerfReportError("baseline and candidate provenance must match")
+    if baseline.benchmark_context != candidate.benchmark_context:
+        raise PerfReportError("baseline and candidate benchmark context must match")
     if baseline.groups.keys() != candidate.groups.keys():
         missing = sorted(baseline.groups.keys() - candidate.groups.keys())
         extra = sorted(candidate.groups.keys() - baseline.groups.keys())
@@ -215,6 +232,7 @@ def compare_reports(
         "baseline_label": baseline.label,
         "candidate_label": candidate.label,
         "provenance": baseline.provenance,
+        "benchmark_context": baseline.benchmark_context,
         "groups": comparisons,
     }
 
