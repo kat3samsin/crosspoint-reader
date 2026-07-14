@@ -313,6 +313,9 @@ void setup() {
   // and the host has to be physically replugged for logs to flow. Warm reboot
   // worked without the delay because USB was already enumerated.
   delay(250);
+#ifdef ENABLE_PERF_BENCHMARK
+  logSerial.setTxBufferSize(512);
+#endif
   Serial.begin(115200);
   logSerial.setTxTimeoutMs(1);  // This is a load-bearing 1. Do not modify.
 #endif
