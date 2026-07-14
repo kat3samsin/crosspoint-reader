@@ -23,8 +23,8 @@ void RecentBooksActivity::loadRecentBooks() { recentBooks = RECENT_BOOKS.getBook
 void RecentBooksActivity::onEnter() {
   Activity::onEnter();
 
-  // Prune entries whose backing files are gone; this is one of two interaction
-  // points where the persistent store gets cleaned (the other is addBook).
+  // Prune entries whose backing files are gone before displaying the complete
+  // list. addBook also prunes only when a new entry would otherwise evict one.
   if (RECENT_BOOKS.pruneMissing()) {
     RECENT_BOOKS.saveToFile();
   }

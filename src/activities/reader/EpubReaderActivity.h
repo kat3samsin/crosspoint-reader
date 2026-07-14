@@ -9,6 +9,7 @@
 #include "EndOfBookOptions.h"
 #include "EpubReaderMenuActivity.h"
 #include "ProgressMapper.h"
+#include <ReadestProgressSidecar.h>
 #include "activities/Activity.h"
 
 class EpubReaderActivity final : public Activity {
@@ -79,6 +80,7 @@ class EpubReaderActivity final : public Activity {
   struct SavedPosition {
     int spineIndex;
     int pageNumber;
+    int pageCount;
   };
   static constexpr int MAX_FOOTNOTE_DEPTH = 3;
   SavedPosition savedPositions[MAX_FOOTNOTE_DEPTH] = {};
@@ -98,6 +100,16 @@ class EpubReaderActivity final : public Activity {
   int lastSavedSpineIndex = -1;
   int lastSavedPage = -1;
   int lastSavedPageCount = -1;
+
+  // Readest sidecars are loaded once on open and written once on reader exit.
+  // They deliberately stay out of the per-page save path.
+  std::string readestDocumentId;
+  bool isReadestManagedBook = false;
+  ReadestProgress::CrossPointSidecar readestCrossPointSidecar;
+  bool hasReadestCrossPointSidecar = false;
+  std::string pendingReadestRevision;
+  ReadestProgress::LocalProgressPosition pendingReadestPosition;
+  bool pendingReadestBinarySaved = false;
 
   void renderContents(std::unique_ptr<Page> page, int orientedMarginTop, int orientedMarginRight,
                       int orientedMarginBottom, int orientedMarginLeft);
@@ -173,6 +185,9 @@ class EpubReaderActivity final : public Activity {
   bool applyDeferredReposition();
   void rememberCurrentContentOffset();
   bool saveProgress(int spineIndex, int currentPage, int pageCount);
+  void applyReadestProgressOnOpen();
+  bool acknowledgeReadestProgressAfterRender();
+  void persistReadestProgressOnExit(const CrossPointPosition& position);
   // Jump to a percentage of the book (0-100), mapping it to spine and page.
   void jumpToPercent(int percent);
   void onReaderMenuConfirm(EpubReaderMenuActivity::MenuAction action);
@@ -182,6 +197,7 @@ class EpubReaderActivity final : public Activity {
   // Returns true if sync acted (launched, or surfaced a save error); false if it was a no-op
   // because no KOReader credentials are stored.
   bool launchKOReaderSync();
+  void applyFontSize(uint8_t fontSize);
   void applyOrientation(uint8_t orientation);
   void toggleAutoPageTurn(uint8_t selectedPageTurnOption);
   void pageTurn(bool isForwardTurn);

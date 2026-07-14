@@ -42,12 +42,23 @@ bool RecentBooksStore::fromJson(JsonVariantConst doc) {
 
 void RecentBooksStore::addBook(const std::string& path, const std::string& title, const std::string& author,
                                const std::string& coverBmpPath) {
-  // Drop stale entries first so a new add can't evict a valid book in their stead.
-  pruneMissing();
+  auto it = std::find_if(recentBooks.begin(), recentBooks.end(),
+                         [&](const RecentBook& book) { return book.path == path; });
+  if (it != recentBooks.end() && it == recentBooks.begin() && it->title == title && it->author == author &&
+      it->coverBmpPath == coverBmpPath) {
+    return;
+  }
 
-  // Remove existing entry if present
-  auto it =
-      std::find_if(recentBooks.begin(), recentBooks.end(), [&](const RecentBook& book) { return book.path == path; });
+  // Checking every recent path is several SD-card directory traversals. It is
+  // only needed when a genuinely new entry could evict an older valid book;
+  // RecentBooksActivity also prunes before displaying the full list.
+  if (it == recentBooks.end() && recentBooks.size() >= MAX_RECENT_BOOKS) {
+    pruneMissing();
+  }
+
+  // Remove an existing entry so it can move to the front with fresh metadata.
+  it = std::find_if(recentBooks.begin(), recentBooks.end(),
+                    [&](const RecentBook& book) { return book.path == path; });
   if (it != recentBooks.end()) {
     recentBooks.erase(it);
   }

@@ -27,11 +27,13 @@
 #include "EpubReaderPercentSelectionActivity.h"
 #include "EpubReaderUtils.h"
 #include "KOReaderCredentialStore.h"
+#include "KOReaderDocumentId.h"
 #include "KOReaderSyncActivity.h"
 #include "MappedInputManager.h"
 #include "ProgressMapper.h"
 #include "QrDisplayActivity.h"
 #include "ReaderUtils.h"
+#include "ReadestProgressStore.h"
 #include "RecentBooksStore.h"
 #include "SdCardFontSystem.h"
 #include "activities/settings/TextSettingsActivity.h"
@@ -196,9 +198,12 @@ void EpubReaderActivity::onEnter() {
                                 (static_cast<uint32_t>(data[8]) << 16) | (static_cast<uint32_t>(data[9]) << 24);
     }
   }
-  // We may want a better condition to detect if we are opening for the first time.
-  // This will trigger if the book is re-opened at Chapter 0.
-  if (currentSpineIndex == 0) {
+  applyReadestProgressOnOpen();
+
+  // Follow the EPUB text reference only for an exact first-open position. A
+  // persisted first-page position or a just-applied Readest update must win.
+  if (ReadestProgress::isInitialPosition(
+          {currentSpineIndex, nextPageNumber, cachedChapterTotalPageCount})) {
     int textSpineIndex = epub->getSpineIndexForTextReference();
     if (textSpineIndex != 0) {
       currentSpineIndex = textSpineIndex;
@@ -233,14 +238,29 @@ void EpubReaderActivity::onExit() {
 
   // Leaving mid-footnote loses the in-RAM return stack on deep sleep; persist the
   // pre-footnote position so the book reopens at the link origin, not the footnote.
+  CrossPointPosition exitPosition = getCurrentPosition();
   if (footnoteDepth > 0 && epub) {
     const SavedPosition& origin = savedPositions[0];
-    saveProgress(origin.spineIndex, origin.pageNumber, 0);
+    if (saveProgress(origin.spineIndex, origin.pageNumber, origin.pageCount)) {
+      lastSavedSpineIndex = origin.spineIndex;
+      lastSavedPage = origin.pageNumber;
+      lastSavedPageCount = origin.pageCount;
+      exitPosition = {origin.spineIndex, origin.pageNumber, origin.pageCount};
+    }
   }
+
+  persistReadestProgressOnExit(exitPosition);
 
   section.reset();
   if (pendingReadFolderMove && epub) {
     const std::string srcPath = epub->getPath();
+    const auto ownership = ReadestProgressStore::getManifestOwnership(srcPath);
+    if (ownership == ReadestProgressStore::ManifestOwnership::Owned ||
+        ownership == ReadestProgressStore::ManifestOwnership::Unknown) {
+      LOG_INF("ERS", "Keeping Readest-managed book at root: %s", srcPath.c_str());
+      epub.reset();
+      return;
+    }
     const std::string oldCachePath = epub->getCachePath();
     const std::string dstPath = buildReadFolderDestination(srcPath);
     epub.reset();  // release the Epub (and any open handles) before renaming on the SD card
@@ -260,12 +280,17 @@ void EpubReaderActivity::openReaderMenu() {
     bookProgress = epub->calculateProgress(currentSpineIndex, chapterProgress) * 100.0f;
   }
   const int bookProgressPercent = clampPercent(static_cast<int>(bookProgress + 0.5f));
-  startActivityForResult(std::make_unique<EpubReaderMenuActivity>(
-                             renderer, mappedInput, epub->getTitle(), currentPage, totalPages, bookProgressPercent,
-                             SETTINGS.orientation, !currentPageFootnotes.empty(), !cachedBookmarks.empty()),
+  startActivityForResult(std::make_unique<EpubReaderMenuActivity>(renderer, mappedInput, epub->getTitle(), currentPage,
+                                                                  totalPages, bookProgressPercent, SETTINGS.orientation,
+                                                                  SETTINGS.fontSize, !currentPageFootnotes.empty(),
+                                                                  !cachedBookmarks.empty()),
                          [this](const ActivityResult& result) {
-                           // Always apply orientation change even if the menu was cancelled
+                           // Match the existing menu behavior: confirmed option-popup changes
+                           // apply even if Back subsequently closes the reader menu.
                            const auto& menu = std::get<MenuResult>(result.data);
+                           // Apply font first so it captures the current section position when
+                           // font size and orientation are changed in the same menu visit.
+                           applyFontSize(menu.fontSize);
                            applyOrientation(menu.orientation);
                            toggleAutoPageTurn(menu.pageTurnOption);
                            if (!result.isCancelled) {
@@ -960,6 +985,10 @@ bool EpubReaderActivity::launchKOReaderSync() {
     requestUpdate();
     return true;  // acted: surfaced a save error to the user
   }
+  lastSavedSpineIndex = currentSpineIndex;
+  lastSavedPage = currentPage;
+  lastSavedPageCount = totalPages;
+  persistReadestProgressOnExit(localPos);
 
   // Release Epub and Section to free ~65KB RAM for the TLS handshake.
   LOG_DBG("KOSync", "Releasing epub for sync (heap before: %u)", (unsigned)ESP.getFreeHeap());
@@ -983,6 +1012,24 @@ bool EpubReaderActivity::launchKOReaderSync() {
   return true;  // acted: launched the sync activity
 }
 
+void EpubReaderActivity::applyFontSize(const uint8_t fontSize) {
+  if (fontSize >= CrossPointSettings::FONT_SIZE_COUNT || SETTINGS.fontSize == fontSize) {
+    return;
+  }
+
+  RenderLock lock(*this);
+  if (section) {
+    cachedSpineIndex = currentSpineIndex;
+    cachedChapterTotalPageCount = section->estimatedTotalPages();
+    nextPageNumber = section->currentPage;
+  }
+
+  SETTINGS.fontSize = fontSize;
+  SETTINGS.saveToFile();
+  sdFontSystem.ensureLoaded(renderer);
+  section.reset();
+}
+
 void EpubReaderActivity::applyOrientation(const uint8_t orientation) {
   // No-op if the selected orientation matches current settings.
   if (SETTINGS.orientation == orientation) {
@@ -995,7 +1042,7 @@ void EpubReaderActivity::applyOrientation(const uint8_t orientation) {
     if (section) {
       rememberCurrentContentOffset();
       cachedSpineIndex = currentSpineIndex;
-      cachedChapterTotalPageCount = section->pageCount;
+      cachedChapterTotalPageCount = section->estimatedTotalPages();
       nextPageNumber = section->currentPage;
     }
 
@@ -1030,7 +1077,7 @@ void EpubReaderActivity::toggleAutoPageTurn(const uint8_t selectedPageTurnOption
     if (section) {
       rememberCurrentContentOffset();
       cachedSpineIndex = currentSpineIndex;
-      cachedChapterTotalPageCount = section->pageCount;
+      cachedChapterTotalPageCount = section->estimatedTotalPages();
       nextPageNumber = section->currentPage;
     }
     section.reset();
@@ -1413,6 +1460,12 @@ void EpubReaderActivity::render(RenderLock&& lock) {
   // Apply a deferred settings-change reposition now that the real page count is known (a no-op for
   // a plain resume / unchanged pagination). If still building, this defers to loop() on completion.
   applyDeferredReposition();
+  if (!pendingReadestRevision.empty() && currentSpineIndex == pendingReadestPosition.spineIndex) {
+    // The mapper may have used an estimated page count. Track the final landing
+    // page after cache clamping/reflow, before declaring that target rendered.
+    pendingReadestPosition.pageNumber = section->currentPage;
+    pendingReadestPosition.pageCount = section->estimatedTotalPages();
+  }
 
   renderer.clearScreen();
 
@@ -1441,7 +1494,13 @@ void EpubReaderActivity::render(RenderLock&& lock) {
   {
     // Unified page read: the in-progress build's in-RAM table if it has reached the page,
     // otherwise the on-disk file (finalized section, or a partial from a previous session).
+#ifdef ENABLE_SERIAL_LOG
+    const auto pageLoadStart = millis();
+#endif
     auto p = section->loadPage(section->currentPage);
+#ifdef ENABLE_SERIAL_LOG
+    LOG_DBG("ERS", "Loaded page data in %lums", millis() - pageLoadStart);
+#endif
     if (!p) {
       LOG_ERR("ERS", "Failed to load page from SD - clearing section cache");
       automaticPageTurnActive = false;
@@ -1480,15 +1539,18 @@ void EpubReaderActivity::render(RenderLock&& lock) {
     LOG_DBG("ERS", "Rendered page in %dms", millis() - start);
     lastRenderCompleteMs = millis();
   }
+  const bool readestProgressReady = acknowledgeReadestProgressAfterRender();
   // Only persist when the position actually changed. render() also runs on menu,
   // bookmark and screenshot re-renders, and writeAtomic is several FAT ops for 6 bytes.
   // Every real page turn changes currentPage, so progress durability is unaffected.
-  if (currentSpineIndex != lastSavedSpineIndex || section->currentPage != lastSavedPage ||
-      section->pageCount != lastSavedPageCount) {
-    if (saveProgress(currentSpineIndex, section->currentPage, section->estimatedTotalPages())) {
+  const int pageCount = section->estimatedTotalPages();
+  if (readestProgressReady &&
+      (currentSpineIndex != lastSavedSpineIndex || section->currentPage != lastSavedPage ||
+       pageCount != lastSavedPageCount)) {
+    if (saveProgress(currentSpineIndex, section->currentPage, pageCount)) {
       lastSavedSpineIndex = currentSpineIndex;
       lastSavedPage = section->currentPage;
-      lastSavedPageCount = section->estimatedTotalPages();
+      lastSavedPageCount = pageCount;
     }
   }
 
@@ -1558,6 +1620,136 @@ void EpubReaderActivity::rememberCurrentContentOffset() {
   cachedVisibleTextOffset.reset();
   if (section && section->currentPage >= 0 && section->currentPage < section->pageCount) {
     cachedVisibleTextOffset = section->getVisibleTextOffsetForPage(static_cast<uint16_t>(section->currentPage));
+  }
+}
+
+void EpubReaderActivity::applyReadestProgressOnOpen() {
+  // Do not hash, map, or create sidecars for ordinary local books. The Readest
+  // manifest is the explicit ownership signal; without it, normal EPUB exit
+  // remains on the original fast progress path.
+  isReadestManagedBook =
+      ReadestProgressStore::getManifestOwnership(epub->getPath()) ==
+      ReadestProgressStore::ManifestOwnership::Owned;
+  if (!isReadestManagedBook) return;
+
+  readestDocumentId = KOReaderDocumentId::calculate(epub->getPath());
+  if (!ReadestProgress::isDocumentId(readestDocumentId)) return;
+
+  hasReadestCrossPointSidecar =
+      ReadestProgressStore::loadCrossPoint(readestDocumentId, readestCrossPointSidecar);
+
+  ReadestProgress::ReadestSidecar readestSidecar;
+  if (!ReadestProgressStore::loadReadest(readestDocumentId, readestSidecar)) return;
+
+  const ReadestProgress::LocalProgressPosition localPosition = {
+      currentSpineIndex, nextPageNumber, cachedChapterTotalPageCount};
+  const auto decision = ReadestProgress::decideApply(
+      {.expectedDocument = readestDocumentId,
+       .readestDocument = readestSidecar.document,
+       .readestRevision = readestSidecar.revision,
+       .basedOnCrosspoint = readestSidecar.basedOnCrosspoint,
+       .hasCrosspointSidecar = hasReadestCrossPointSidecar,
+       .crosspointDocument = hasReadestCrossPointSidecar ? readestCrossPointSidecar.document : std::string_view{},
+       .crosspointRevision = hasReadestCrossPointSidecar ? readestCrossPointSidecar.revision : std::string_view{},
+       .appliedReadest = hasReadestCrossPointSidecar ? readestCrossPointSidecar.appliedReadest : std::string_view{},
+       .localPosition = localPosition,
+       .sidecarPosition = hasReadestCrossPointSidecar ? readestCrossPointSidecar.position
+                                                     : ReadestProgress::LocalProgressPosition{}});
+  if (decision != ReadestProgress::ApplyDecision::APPLY) {
+    LOG_DBG("RPS", "Skipped Readest progress update: %u", static_cast<unsigned>(decision));
+    return;
+  }
+
+  const SavedProgressPosition remotePosition = {readestSidecar.xpointer, readestSidecar.percentage};
+  const CrossPointPosition mapped = ProgressMapper::toCrossPoint(
+      epub, remotePosition, renderer, currentSpineIndex, cachedChapterTotalPageCount,
+      cachedChapterTotalPageCount);
+  const ReadestProgress::LocalProgressPosition mappedPosition = {
+      mapped.spineIndex, mapped.pageNumber, mapped.totalPages};
+  if (mapped.spineIndex < 0 || mapped.spineIndex >= epub->getSpineItemsCount() ||
+      !ReadestProgress::isPersistedPosition(mappedPosition)) {
+    LOG_ERR("RPS", "Could not map Readest progress");
+    return;
+  }
+
+  currentSpineIndex = mapped.spineIndex;
+  nextPageNumber = mapped.pageNumber;
+  cachedSpineIndex = mapped.spineIndex;
+  cachedChapterTotalPageCount = mapped.totalPages;
+  pendingReadestRevision = readestSidecar.revision;
+  pendingReadestPosition = mappedPosition;
+  pendingReadestBinarySaved = false;
+}
+
+bool EpubReaderActivity::acknowledgeReadestProgressAfterRender() {
+  if (pendingReadestRevision.empty() || !section) return pendingReadestRevision.empty();
+  const CrossPointPosition rendered = getCurrentPosition();
+  const ReadestProgress::LocalProgressPosition renderedPosition = {
+      rendered.spineIndex, rendered.pageNumber, rendered.totalPages};
+  if (!ReadestProgress::shouldAcknowledgeAfterRender(
+          pendingReadestPosition, renderedPosition, true)) {
+    return false;
+  }
+
+  if (!pendingReadestBinarySaved) {
+    if (!saveProgress(rendered.spineIndex, rendered.pageNumber, rendered.totalPages)) return false;
+    lastSavedSpineIndex = rendered.spineIndex;
+    lastSavedPage = rendered.pageNumber;
+    lastSavedPageCount = rendered.totalPages;
+    pendingReadestBinarySaved = true;
+  }
+
+  const SavedProgressPosition canonicalPosition = ProgressMapper::toSavedProgress(epub, rendered);
+  ReadestProgress::CrossPointSidecar sidecar = ReadestProgress::createCrossPointSidecar(
+      readestDocumentId, {}, canonicalPosition.xpath, canonicalPosition.percentage,
+      pendingReadestRevision, renderedPosition);
+  if (!ReadestProgressStore::saveCrossPoint(sidecar)) return false;
+
+  readestCrossPointSidecar = std::move(sidecar);
+  hasReadestCrossPointSidecar = true;
+  pendingReadestRevision.clear();
+  pendingReadestBinarySaved = false;
+  return true;
+}
+
+void EpubReaderActivity::persistReadestProgressOnExit(const CrossPointPosition& position) {
+  if (!epub) return;
+  if (!pendingReadestRevision.empty()) {
+    // Never acknowledge a mapped target that did not render. If the page did
+    // render and only the sidecar replacement failed, make one final retry.
+    if (pendingReadestBinarySaved) acknowledgeReadestProgressAfterRender();
+    return;
+  }
+  if (!isReadestManagedBook) return;
+  if (!ReadestProgress::isDocumentId(readestDocumentId)) {
+    readestDocumentId = KOReaderDocumentId::calculate(epub->getPath());
+  }
+  if (!ReadestProgress::isDocumentId(readestDocumentId)) return;
+  const ReadestProgress::LocalProgressPosition localPosition = {
+      position.spineIndex, position.pageNumber, position.totalPages};
+  if (!ReadestProgress::isPersistedPosition(localPosition)) return;
+
+  if (lastSavedSpineIndex != position.spineIndex || lastSavedPage != position.pageNumber ||
+      lastSavedPageCount != position.totalPages) {
+    if (!saveProgress(position.spineIndex, position.pageNumber, position.totalPages)) return;
+    lastSavedSpineIndex = position.spineIndex;
+    lastSavedPage = position.pageNumber;
+    lastSavedPageCount = position.totalPages;
+  }
+
+  if (hasReadestCrossPointSidecar &&
+      ReadestProgress::sameLocalPosition(readestCrossPointSidecar.position, localPosition)) {
+    return;
+  }
+
+  const SavedProgressPosition savedPosition = ProgressMapper::toSavedProgress(epub, position);
+  const std::string appliedRevision = ReadestProgress::appliedRevisionForExit(
+      hasReadestCrossPointSidecar ? &readestCrossPointSidecar : nullptr, localPosition);
+  ReadestProgress::CrossPointSidecar sidecar = ReadestProgress::createCrossPointSidecar(
+      readestDocumentId, {}, savedPosition.xpath, savedPosition.percentage, appliedRevision, localPosition);
+  if (ReadestProgressStore::saveCrossPoint(sidecar)) {
+    readestCrossPointSidecar = std::move(sidecar);
+    hasReadestCrossPointSidecar = true;
   }
 }
 void EpubReaderActivity::renderContents(std::unique_ptr<Page> page, const int orientedMarginTop,
@@ -1891,7 +2083,8 @@ void EpubReaderActivity::navigateToHref(const std::string& hrefStr, const bool s
 
   // Push current position onto saved stack
   if (savePosition && section && footnoteDepth < MAX_FOOTNOTE_DEPTH) {
-    savedPositions[footnoteDepth] = {currentSpineIndex, section->currentPage};
+    savedPositions[footnoteDepth] = {
+        currentSpineIndex, section->currentPage, section->estimatedTotalPages()};
     footnoteDepth++;
     LOG_DBG("ERS", "Saved position [%d]: spine %d, page %d", footnoteDepth, currentSpineIndex, section->currentPage);
   }
