@@ -1,5 +1,9 @@
 #include "PerformanceBenchmark.h"
 
+#if defined(ENABLE_PERF_BENCHMARK) && !defined(ENABLE_SERIAL_LOG)
+#error "ENABLE_PERF_BENCHMARK requires ENABLE_SERIAL_LOG"
+#endif
+
 #ifdef ENABLE_PERF_BENCHMARK
 
 #include <Arduino.h>
