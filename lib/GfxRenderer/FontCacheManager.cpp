@@ -99,9 +99,14 @@ void FontCacheManager::PrewarmScope::endScanAndPrewarm() {
 
   manager_->prewarmCache(manager_->scanFontId_, manager_->scanText_.c_str(), styleMask);
 
-  // Free scan string memory
+  // Keep the normal page-sized allocation for the next render. Reserving it
+  // again every page turns the prewarm path into a repeated heap allocation
+  // and free cycle. Large exceptional pages still give their memory back.
   manager_->scanText_.clear();
-  manager_->scanText_.shrink_to_fit();
+  constexpr size_t kRetainedScanCapacity = 4096;
+  if (manager_->scanText_.capacity() > kRetainedScanCapacity) {
+    std::string{}.swap(manager_->scanText_);
+  }
 }
 
 FontCacheManager::PrewarmScope::~PrewarmScope() {

@@ -3,6 +3,10 @@
 #include <HalStorage.h>
 #include <WebServer.h>
 
+#include <array>
+
+#include "WebDAVPathPolicy.h"
+
 class WebDAVHandler : public RequestHandler {
  public:
   // RequestHandler interface
@@ -17,6 +21,14 @@ class WebDAVHandler : public RequestHandler {
   String _putPath;
   bool _putOk = false;
   bool _putExisted = false;
+  bool _putValidated = false;
+  size_t _putBytes = 0;
+
+  // The handler is heap-owned for the lifetime of the foreground web server.
+  // Keeping one modest transfer buffer here avoids a large request-stack frame
+  // and repeated heap allocation while still batching SD and Wi-Fi I/O.
+  static constexpr size_t DOWNLOAD_BUFFER_SIZE = 2048;
+  std::array<uint8_t, DOWNLOAD_BUFFER_SIZE> _downloadBuffer{};
 
   // WebDAV method handlers
   void handleOptions(WebServer& s);
@@ -35,9 +47,11 @@ class WebDAVHandler : public RequestHandler {
   String getRequestPath(WebServer& s) const;
   String getDestinationPath(WebServer& s) const;
   void urlEncodePath(const String& path, String& out) const;
-  bool isProtectedPath(const String& path) const;
+  bool isProtectedPath(const String& path, WebDAVOperation operation) const;
   int getDepth(WebServer& s) const;
   bool getOverwrite(WebServer& s) const;
   void sendPropEntry(WebServer& s, const String& href, bool isDir, size_t size, const String& lastModified) const;
   String getMimeType(const String& path) const;
+  bool validateProgressSidecarFile(const String& targetPath, const String& candidatePath);
+  void recoverProgressSidecar(const String& path);
 };

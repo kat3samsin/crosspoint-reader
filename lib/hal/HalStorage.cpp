@@ -99,8 +99,14 @@ bool HalStorage::rmdir(const char* path) { HAL_STORAGE_WRAPPED_CALL(rmdir, path)
 
 bool HalStorage::openFileForRead(const char* moduleName, const char* path, HalFile& file) {
   StorageLock lock;  // ensure thread safety for the duration of this function
-  FsFile fsFile;
-  bool ok = SDCard.openFileForRead(moduleName, path, fsFile);
+  // SDCardManager::openFileForRead() checks exists() before open(), causing
+  // two FAT/exFAT directory traversals for every successful read. Open once
+  // here so hot paths such as cached EPUB page loads pay for one lookup.
+  FsFile fsFile = SDCard.open(path, O_RDONLY);
+  const bool ok = static_cast<bool>(fsFile);
+  if (!ok) {
+    LOG_ERR(moduleName, "Failed to open file for reading: %s", path);
+  }
   file = HalFile(std::make_unique<HalFile::Impl>(std::move(fsFile)));
   return ok;
 }

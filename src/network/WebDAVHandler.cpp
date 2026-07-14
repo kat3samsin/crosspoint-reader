@@ -4,11 +4,85 @@
 #include <HalStorage.h>
 #include <Logging.h>
 #include <esp_task_wdt.h>
+#include <lwip/sockets.h>
 
+#include <algorithm>
+#include <cerrno>
+
+#include <ReadestProgressSidecar.h>
+#include <AtomicFileReplace.h>
+#include "../activities/reader/ReadestProgressStore.h"
 #include "util/BookCacheUtils.h"
 
 namespace {
 constexpr const char* HIDDEN_ITEMS[] = {"System Volume Information", "XTCache"};
+constexpr unsigned long CLIENT_STALL_TIMEOUT_MS = 3000;
+
+struct WebDAVStorageFileSystem {
+  bool exists(const std::string& path) const { return Storage.exists(path.c_str()); }
+  bool remove(const std::string& path) const { return Storage.remove(path.c_str()); }
+  bool rename(const std::string& from, const std::string& to) const {
+    return Storage.rename(from.c_str(), to.c_str());
+  }
+};
+
+bool isReadableNonEmptyFile(const std::string& path) {
+  HalFile file = Storage.open(path.c_str());
+  if (!file) return false;
+  const bool valid = !file.isDirectory() && file.fileSize() > 0;
+  file.close();
+  return valid;
+}
+
+bool isReadestLibraryManifest(const String& path) {
+  return std::string_view(path.c_str(), path.length()) == WebDAVPathPolicy::READEST_LIBRARY_MANIFEST;
+}
+
+bool isRootEpubPath(const String& path) {
+  const std::string_view value(path.c_str(), path.length());
+  constexpr std::string_view extension = ".epub";
+  if (value.size() <= extension.size() || value.front() != '/' ||
+      value.find('/', 1) != std::string_view::npos) {
+    return false;
+  }
+  const std::string_view suffix = value.substr(value.size() - extension.size());
+  for (size_t index = 0; index < extension.size(); ++index) {
+    char character = suffix[index];
+    if (character >= 'A' && character <= 'Z') character = static_cast<char>(character - 'A' + 'a');
+    if (character != extension[index]) return false;
+  }
+  return true;
+}
+
+bool isReadestManagedBook(const String& path) {
+  return isRootEpubPath(path) &&
+         ReadestProgressStore::getManifestOwnership(path.c_str()) ==
+             ReadestProgressStore::ManifestOwnership::Owned;
+}
+
+bool writeChunk(NetworkClient& client, const uint8_t* data, const size_t length, size_t& written) {
+  written = 0;
+  const int socket = client.fd();
+  if (socket < 0) return false;
+
+  unsigned long lastProgress = millis();
+  while (written < length) {
+    const int result = send(socket, data + written, length - written, MSG_DONTWAIT);
+    if (result > 0) {
+      written += static_cast<size_t>(result);
+      lastProgress = millis();
+      continue;
+    }
+    if (result == 0) return false;
+    if (errno == EINTR) continue;
+    if (errno != EAGAIN && errno != EWOULDBLOCK) return false;
+    if (millis() - lastProgress >= CLIENT_STALL_TIMEOUT_MS) return false;
+
+    esp_task_wdt_reset();
+    delay(1);
+  }
+  return true;
+}
 
 // RFC 1123 date format helper: "Sun, 06 Nov 1994 08:49:37 GMT"
 // ESP32 doesn't have real-time clock set by default, so we use a fixed epoch date
@@ -48,7 +122,26 @@ void WebDAVHandler::raw(WebServer& server, const String& uri, HTTPRaw& raw) {
   (void)uri;
   if (raw.status == RAW_START) {
     _putPath = getRequestPath(server);
-    if (isProtectedPath(_putPath)) {
+    _putBytes = 0;
+    _putValidated = false;
+    if (isProtectedPath(_putPath, WebDAVOperation::Put)) {
+      _putOk = false;
+      return;
+    }
+
+    // Create the parents for the exact Readest-owned hidden files internally;
+    // MKCOL remains forbidden for every hidden path.
+    const auto progressKind = WebDAVPathPolicy::classifyProgressSidecar(_putPath.c_str());
+    const bool needsCrossPointDirectory =
+        std::string_view(_putPath.c_str()) == WebDAVPathPolicy::READEST_LIBRARY_MANIFEST ||
+        progressKind == WebDAVPathPolicy::ProgressSidecarKind::ReadestOwned;
+    if (needsCrossPointDirectory && !Storage.exists("/.crosspoint") && !Storage.mkdir("/.crosspoint")) {
+      _putOk = false;
+      return;
+    }
+    if (progressKind == WebDAVPathPolicy::ProgressSidecarKind::ReadestOwned &&
+        !Storage.exists(WebDAVPathPolicy::READEST_PROGRESS_DIRECTORY.data()) &&
+        !Storage.mkdir(WebDAVPathPolicy::READEST_PROGRESS_DIRECTORY.data())) {
       _putOk = false;
       return;
     }
@@ -85,9 +178,17 @@ void WebDAVHandler::raw(WebServer& server, const String& uri, HTTPRaw& raw) {
   } else if (raw.status == RAW_WRITE) {
     if (_putFile && _putOk) {
       esp_task_wdt_reset();
-      size_t written = _putFile.write(raw.buf, raw.currentSize);
+      if (WebDAVPathPolicy::classifyProgressSidecar(_putPath.c_str()) ==
+              WebDAVPathPolicy::ProgressSidecarKind::ReadestOwned &&
+          raw.currentSize > WebDAVPathPolicy::MAX_READEST_PROGRESS_SIDECAR_BYTES - _putBytes) {
+        _putOk = false;
+        return;
+      }
+      const size_t written = _putFile.write(raw.buf, raw.currentSize);
       if (written != raw.currentSize) {
         _putOk = false;
+      } else {
+        _putBytes += written;
       }
     }
 
@@ -95,15 +196,37 @@ void WebDAVHandler::raw(WebServer& server, const String& uri, HTTPRaw& raw) {
     if (_putFile) _putFile.close();
     if (_putOk) {
       String tempPath = _putPath + ".davtmp";
-      if (_putExisted) Storage.remove(_putPath.c_str());
-      HalFile tmp = Storage.open(tempPath.c_str());
-      if (tmp) {
-        _putOk = tmp.rename(_putPath.c_str());
-        tmp.close();
-      } else {
+      if (WebDAVPathPolicy::classifyProgressSidecar(_putPath.c_str()) ==
+              WebDAVPathPolicy::ProgressSidecarKind::ReadestOwned &&
+          !validateProgressSidecarFile(_putPath, tempPath)) {
         _putOk = false;
+      } else if (WebDAVPathPolicy::classifyProgressSidecar(_putPath.c_str()) ==
+                 WebDAVPathPolicy::ProgressSidecarKind::ReadestOwned) {
+        _putValidated = true;
       }
-      if (!_putOk) Storage.remove(tempPath.c_str());
+    }
+    if (_putOk) {
+      String tempPath = _putPath + ".davtmp";
+      const auto progressKind = WebDAVPathPolicy::classifyProgressSidecar(_putPath.c_str());
+      if (progressKind == WebDAVPathPolicy::ProgressSidecarKind::ReadestOwned ||
+          isReadestLibraryManifest(_putPath) || isReadestManagedBook(_putPath)) {
+        WebDAVStorageFileSystem fileSystem;
+        _putOk = AtomicFileReplace::replace(
+            tempPath.c_str(), _putPath.c_str(), std::string(_putPath.c_str()) + ".davbak", fileSystem);
+      } else {
+        if (_putExisted) Storage.remove(_putPath.c_str());
+        HalFile tmp = Storage.open(tempPath.c_str());
+        if (tmp) {
+          _putOk = tmp.rename(_putPath.c_str());
+          tmp.close();
+        } else {
+          _putOk = false;
+        }
+      }
+    }
+    if (!_putOk && !_putValidated) {
+      String tempPath = _putPath + ".davtmp";
+      Storage.remove(tempPath.c_str());
     }
     LOG_DBG("DAV", "PUT END: %u bytes, ok=%d", raw.totalSize, _putOk);
 
@@ -113,6 +236,75 @@ void WebDAVHandler::raw(WebServer& server, const String& uri, HTTPRaw& raw) {
     Storage.remove(tempPath.c_str());
     _putOk = false;
   }
+}
+
+bool WebDAVHandler::validateProgressSidecarFile(const String& targetPath, const String& candidatePath) {
+  HalFile file;
+  if (!Storage.openFileForRead("DAV", candidatePath, file)) return false;
+  const size_t size = file.fileSize();
+  if (size == 0 || size > _downloadBuffer.size()) {
+    file.close();
+    return false;
+  }
+  const int bytesRead = file.read(_downloadBuffer.data(), size);
+  file.close();
+  if (bytesRead != static_cast<int>(size)) return false;
+
+  const auto kind = WebDAVPathPolicy::classifyProgressSidecar(targetPath.c_str());
+  std::string document;
+  const std::string_view json(reinterpret_cast<const char*>(_downloadBuffer.data()), size);
+  if (kind == WebDAVPathPolicy::ProgressSidecarKind::ReadestOwned) {
+    ReadestProgress::ReadestSidecar sidecar;
+    if (!ReadestProgress::parseReadestSidecar(json, sidecar)) return false;
+    document = std::move(sidecar.document);
+  } else if (kind == WebDAVPathPolicy::ProgressSidecarKind::CrossPointOwned) {
+    ReadestProgress::CrossPointSidecar sidecar;
+    if (!ReadestProgress::parseCrossPointSidecar(json, sidecar)) return false;
+    if (!ReadestProgress::matchesCrossPointRevision(
+            sidecar, ReadestProgressStore::calculateRevision(sidecar.document, sidecar.xpointer,
+                                                              sidecar.percentage))) {
+      return false;
+    }
+    document = std::move(sidecar.document);
+  } else {
+    return false;
+  }
+
+  constexpr size_t prefixLength = sizeof("/.crosspoint/readest-sync/") - 1;
+  const std::string_view path(targetPath.c_str(), targetPath.length());
+  return path.size() >= prefixLength + 32 && path.substr(prefixLength, 32) == document;
+}
+
+void WebDAVHandler::recoverProgressSidecar(const String& path) {
+  const auto kind = WebDAVPathPolicy::classifyProgressSidecar(path.c_str());
+  const bool isManifest = isReadestLibraryManifest(path);
+  const bool isManagedBook = isReadestManagedBook(path);
+  if (kind == WebDAVPathPolicy::ProgressSidecarKind::None && !isManifest && !isManagedBook) return;
+  WebDAVStorageFileSystem fileSystem;
+  const std::string finalPath(path.c_str());
+  if (isManifest) {
+    AtomicFileReplace::recover(finalPath, finalPath + ".davbak", finalPath + ".davtmp", fileSystem,
+                               isReadableNonEmptyFile);
+    return;
+  }
+  if (isManagedBook) {
+    const std::string backupPath = finalPath + ".davbak";
+    // A book payload is not self-describing enough to validate a temporary
+    // file here. After an interrupted replacement, prefer the last known
+    // readable copy and let Readest retry the still-uploading manifest entry.
+    if (!Storage.exists(path.c_str()) && Storage.exists(backupPath.c_str())) {
+      Storage.rename(backupPath.c_str(), path.c_str());
+    }
+    return;
+  }
+  const std::string backupPath =
+      finalPath + (kind == WebDAVPathPolicy::ProgressSidecarKind::ReadestOwned ? ".davbak" : ".bak");
+  const std::string temporaryPath =
+      finalPath + (kind == WebDAVPathPolicy::ProgressSidecarKind::ReadestOwned ? ".davtmp" : ".tmp");
+  AtomicFileReplace::recover(finalPath, backupPath, temporaryPath, fileSystem,
+                             [&](const std::string& candidate) {
+                               return validateProgressSidecarFile(path, candidate.c_str());
+                             });
 }
 
 bool WebDAVHandler::handle(WebServer& server, HTTPMethod method, const String& uri) {
@@ -175,6 +367,11 @@ void WebDAVHandler::handlePropfind(WebServer& s) {
   int depth = getDepth(s);
 
   LOG_DBG("DAV", "PROPFIND %s depth=%d", path.c_str(), depth);
+
+  if (isProtectedPath(path, WebDAVOperation::Propfind)) {
+    s.send(403, "text/plain", "Forbidden");
+    return;
+  }
 
   // Check if path exists
   if (!Storage.exists(path.c_str()) && path != "/") {
@@ -301,10 +498,12 @@ void WebDAVHandler::handleGet(WebServer& s) {
   String path = getRequestPath(s);
   LOG_DBG("DAV", "GET %s", path.c_str());
 
-  if (isProtectedPath(path)) {
+  if (isProtectedPath(path, WebDAVOperation::Get)) {
     s.send(403, "text/plain", "Forbidden");
     return;
   }
+
+  recoverProgressSidecar(path);
 
   if (!Storage.exists(path.c_str())) {
     s.send(404, "text/plain", "Not Found");
@@ -324,12 +523,40 @@ void WebDAVHandler::handleGet(WebServer& s) {
   }
 
   String contentType = getMimeType(path);
-  s.setContentLength(file.size());
+  const size_t expectedBytes = file.size();
+  s.setContentLength(expectedBytes);
   s.send(200, contentType.c_str(), "");
 
   NetworkClient client = s.client();
-  client.write(file);
+  size_t sentBytes = 0;
+  bool downloadOk = true;
+
+  // HalFile derives from Print, not Stream. Passing it to client.write()
+  // converts it to bool and sends one byte while Content-Length advertises
+  // the entire file. Stream explicit chunks, while bounding a stalled socket
+  // so a disconnected sync client cannot freeze the foreground server.
+  while (downloadOk && sentBytes < expectedBytes) {
+    esp_task_wdt_reset();
+    const size_t remaining = expectedBytes - sentBytes;
+    const size_t requested = std::min(remaining, _downloadBuffer.size());
+    const int result = file.read(_downloadBuffer.data(), requested);
+    if (result <= 0) {
+      downloadOk = false;
+      break;
+    }
+
+    const size_t bytesRead = static_cast<size_t>(result);
+    size_t chunkWritten = 0;
+    downloadOk = writeChunk(client, _downloadBuffer.data(), bytesRead, chunkWritten);
+    sentBytes += chunkWritten;
+  }
+
   file.close();
+  if (!downloadOk || sentBytes != expectedBytes) {
+    LOG_ERR("DAV", "GET interrupted: %s (%u/%u bytes)", path.c_str(), static_cast<unsigned>(sentBytes),
+            static_cast<unsigned>(expectedBytes));
+    client.stop();
+  }
 }
 
 // ── HEAD ─────────────────────────────────────────────────────────────────────
@@ -338,10 +565,12 @@ void WebDAVHandler::handleHead(WebServer& s) {
   String path = getRequestPath(s);
   LOG_DBG("DAV", "HEAD %s", path.c_str());
 
-  if (isProtectedPath(path)) {
+  if (isProtectedPath(path, WebDAVOperation::Head)) {
     s.send(403, "text/plain", "");
     return;
   }
+
+  recoverProgressSidecar(path);
 
   if (!Storage.exists(path.c_str())) {
     s.send(404, "text/plain", "");
@@ -373,14 +602,16 @@ void WebDAVHandler::handlePut(WebServer& s) {
   String path = getRequestPath(s);
   LOG_DBG("DAV", "PUT %s", path.c_str());
 
-  if (isProtectedPath(path)) {
+  if (isProtectedPath(path, WebDAVOperation::Put)) {
     s.send(403, "text/plain", "Forbidden");
     return;
   }
 
   if (!_putOk) {
-    String tempPath = path + ".davtmp";
-    Storage.remove(tempPath.c_str());
+    if (!_putValidated) {
+      String tempPath = path + ".davtmp";
+      Storage.remove(tempPath.c_str());
+    }
     s.send(500, "text/plain", "Write failed - incomplete upload or disk full");
     return;
   }
@@ -401,7 +632,7 @@ void WebDAVHandler::handleDelete(WebServer& s) {
     return;
   }
 
-  if (isProtectedPath(path)) {
+  if (isProtectedPath(path, WebDAVOperation::Delete)) {
     s.send(403, "text/plain", "Forbidden");
     return;
   }
@@ -449,7 +680,7 @@ void WebDAVHandler::handleMkcol(WebServer& s) {
   String path = getRequestPath(s);
   LOG_DBG("DAV", "MKCOL %s", path.c_str());
 
-  if (isProtectedPath(path)) {
+  if (isProtectedPath(path, WebDAVOperation::Mkcol)) {
     s.send(403, "text/plain", "Forbidden");
     return;
   }
@@ -497,7 +728,8 @@ void WebDAVHandler::handleMove(WebServer& s) {
     return;
   }
 
-  if (isProtectedPath(srcPath) || isProtectedPath(dstPath)) {
+  if (isProtectedPath(srcPath, WebDAVOperation::Move) ||
+      isProtectedPath(dstPath, WebDAVOperation::Move)) {
     s.send(403, "text/plain", "Forbidden");
     return;
   }
@@ -563,7 +795,8 @@ void WebDAVHandler::handleCopy(WebServer& s) {
 
   LOG_DBG("DAV", "COPY %s -> %s (overwrite=%d)", srcPath.c_str(), dstPath.c_str(), overwrite);
 
-  if (isProtectedPath(srcPath) || isProtectedPath(dstPath)) {
+  if (isProtectedPath(srcPath, WebDAVOperation::Copy) ||
+      isProtectedPath(dstPath, WebDAVOperation::Copy)) {
     s.send(403, "text/plain", "Forbidden");
     return;
   }
@@ -655,6 +888,11 @@ void WebDAVHandler::handleLock(WebServer& s) {
   String path = getRequestPath(s);
   LOG_DBG("DAV", "LOCK %s (dummy)", path.c_str());
 
+  if (isProtectedPath(path, WebDAVOperation::Lock)) {
+    s.send(403, "text/plain", "Forbidden");
+    return;
+  }
+
   // Return a dummy lock token for client compatibility
   String xml =
       "<?xml version=\"1.0\" encoding=\"utf-8\"?>\n"
@@ -675,7 +913,12 @@ void WebDAVHandler::handleLock(WebServer& s) {
 }
 
 void WebDAVHandler::handleUnlock(WebServer& s) {
-  LOG_DBG("DAV", "UNLOCK %s (dummy)", s.uri().c_str());
+  String path = getRequestPath(s);
+  LOG_DBG("DAV", "UNLOCK %s (dummy)", path.c_str());
+  if (isProtectedPath(path, WebDAVOperation::Unlock)) {
+    s.send(403, "text/plain", "Forbidden");
+    return;
+  }
   s.send(204);
 }
 
@@ -758,30 +1001,8 @@ void WebDAVHandler::urlEncodePath(const String& path, String& out) const {
   }
 }
 
-bool WebDAVHandler::isProtectedPath(const String& path) const {
-  // Check every segment of the path, not just the last one.
-  // This prevents access to e.g. /.hidden/somefile or /System Volume Information/foo
-  int start = 0;
-  while (start < (int)path.length()) {
-    if (path.charAt(start) == '/') {
-      start++;
-      continue;
-    }
-    int end = path.indexOf('/', start);
-    if (end == -1) end = path.length();
-
-    String segment = path.substring(start, end);
-
-    if (segment.startsWith(".")) return true;
-
-    for (const auto* item : HIDDEN_ITEMS) {
-      if (segment.equals(item)) return true;
-    }
-
-    start = end + 1;
-  }
-
-  return false;
+bool WebDAVHandler::isProtectedPath(const String& path, const WebDAVOperation operation) const {
+  return WebDAVPathPolicy::isProtected(path.c_str(), operation);
 }
 
 int WebDAVHandler::getDepth(WebServer& s) const {

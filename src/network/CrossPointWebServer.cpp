@@ -380,6 +380,12 @@ void CrossPointWebServer::handleStatus() const {
   doc["uptime"] = millis() / 1000;
   doc["device"] = gpio.deviceIsX3() ? "X3" : "X4";
 
+  JsonObject readestSync = doc["readestSync"].to<JsonObject>();
+  readestSync["protocol"] = 2;
+  readestSync["books"] = true;
+  readestSync["progress"] = true;
+  readestSync["highlights"] = false;
+
   char snBuf[33] = {0};
   bool valid = false;
   if (esp_efuse_read_field_blob(ESP_EFUSE_USER_DATA, snBuf, 256) == ESP_OK) {
