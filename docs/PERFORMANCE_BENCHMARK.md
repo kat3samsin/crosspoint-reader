@@ -23,6 +23,9 @@ python3 scripts/perf_collect.py \
   --scenario boot_to_home \
   --samples 20 \
   --label "katre-fast-$(git rev-parse --short HEAD)-x4" \
+  --device-id "katre-x4" \
+  --device-model "X4" \
+  --protocol-id "katre-x4-benchmark-v1" \
   --output benchmark-katre-fast-x4-boot.json
 ```
 
@@ -36,6 +39,9 @@ The live collector retries while the port is absent and reconnects to the same
 path after each USB reset. Use a separate report for each scenario, changing
 `--scenario`, `--samples`, and the output filename. Every label must identify
 the firmware SHA and device model.
+Use the same device ID, model, and protocol ID for the matching baseline and
+fast runs. Change the protocol ID whenever the SD card, EPUB, font, layout, or
+refresh setup changes.
 
 The collector prints count, minimum, median, p95, and maximum durations. It
 also writes every accepted record and the grouped summaries to the requested
@@ -47,8 +53,30 @@ Raw serial logs can be parsed later without a connected device:
 ```bash
 python3 scripts/perf_collect.py crosspoint-serial.log \
   --label "katre-fast-$(git rev-parse --short HEAD)-x4" \
+  --device-id "katre-x4" \
+  --device-model "X4" \
+  --protocol-id "katre-x4-benchmark-v1" \
   --output benchmark-katre-fast.json
 ```
+
+Compare matching 20-sample baseline and fast reports after both runs:
+
+```bash
+python3 scripts/perf_compare.py \
+  benchmark-baseline-x4-page-turn.json \
+  benchmark-katre-fast-x4-page-turn.json \
+  --output benchmark-x4-page-turn-comparison.json
+```
+
+The comparator recomputes summaries from the raw records and rejects different
+devices, protocol IDs, scenarios, cache states, managed states, directions, or
+sample counts. Positive percentages mean the fast candidate took less time.
+Treat the percentages as descriptive results from this X4 run, not statistical
+significance.
+
+For `book_open`, compare upstream only with the fast branch's unmanaged
+(`managed=false`) report. Managed Readest books and `readest_probe` have no
+upstream-equivalent group and are measured separately on the fast branch.
 
 ## Repeatable X4 run
 
