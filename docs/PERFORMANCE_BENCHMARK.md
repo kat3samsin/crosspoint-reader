@@ -25,7 +25,7 @@ python3 scripts/perf_collect.py \
   --label "baseline-$(git rev-parse --short HEAD)-x4" \
   --device-id "katre-x4" \
   --device-model "X4" \
-  --protocol-id "katre-x4-benchmark-v2" \
+  --protocol-id "katre-x4-benchmark-v3" \
   --output benchmark-baseline-x4-boot.json
 ~~~
 
@@ -36,9 +36,11 @@ pio device list
 ~~~
 
 The live collector retries while the port is absent and reconnects to the same
-path after each USB reset. Use a separate report for each scenario, changing
-`--scenario`, `--samples`, and the output filename. Every label must identify
-the firmware SHA and device model.
+path after each USB reset. An automated page-turn run is stricter: after its
+command is sent, any disconnect fails the run instead of combining two serial
+sessions. Use a separate report for each scenario, changing `--scenario`,
+`--samples`, and the output filename. Every label must identify the firmware
+SHA and device model.
 Use the same device ID, model, and protocol ID for the matching baseline and
 fast runs. Change the protocol ID whenever the SD card, EPUB, font, layout, or
 refresh setup changes.
@@ -59,7 +61,7 @@ python3 scripts/perf_collect.py crosspoint-serial.log \
   --label "baseline-$(git rev-parse --short HEAD)-x4" \
   --device-id "katre-x4" \
   --device-model "X4" \
-  --protocol-id "katre-x4-benchmark-v2" \
+  --protocol-id "katre-x4-benchmark-v3" \
   --output benchmark-baseline.json
 ~~~
 
@@ -102,18 +104,20 @@ refresh settings identical between builds.
    book's complete `/.crosspoint/epub_*` cache directory, not just `book.bin`,
    and collect cold opens separately. Baseline records `managed=false` because
    this branch has no Readest integration.
-3. Choose two adjacent pages inside a fully indexed, text-only chapter and make
-   20 turns alternating between them: A to B, B to A, and repeat. Wait for each
-   panel update to finish, then leave a three-second pause before pressing
-   again. Overlapping inputs are discarded because the firmware coalesces them
-   into one ambiguous render.
+3. Choose two adjacent pages inside a fully indexed, text-only chapter, leave
+   automatic page turn off, and stop on the first page (A). Run the page-turn
+   collector with `--drive-page-turns`, `--scenario page_turn_in_section`, and
+   `--samples 20`. The benchmark firmware resets the refresh cadence, waits for
+   each completed target render and an idle render lock, leaves a three-second
+   settling interval, then alternates A to B and B to A. It finishes back on A
+   without manual button timing. The collector releases the 20 records only
+   after validating the firmware's final count and return-to-A marker.
    The collector rejects iteration gaps, any third page, a mid-run font-size or
    text-antialiasing change, an unidentified refresh branch, and image pages.
    Only text-page `fast` and `half` refresh records are comparable because image
    pages can execute several different display sequences.
-   `page_turn_in_section` deliberately excludes chapter boundaries; keep
-   automatic page turn off.
-4. Save /api/status from the same idle state for each build so free heap is
+   `page_turn_in_section` deliberately excludes chapter boundaries.
+4. Save `/api/status` from the same idle state for each build so free heap is
    comparable. Every timing record also includes free heap immediately after
    that scenario.
 

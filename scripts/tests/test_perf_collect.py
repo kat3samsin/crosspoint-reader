@@ -29,6 +29,9 @@ class FakeSerialException(OSError):
 class FakeSerialConnection:
     def __init__(self, events):
         self.events = list(events)
+        self.writes = []
+        self.reset_count = 0
+        self.flush_count = 0
 
     def __enter__(self):
         return self
@@ -51,6 +54,16 @@ class FakeSerialConnection:
             raise event
         return event
 
+    def reset_input_buffer(self):
+        self.reset_count += 1
+
+    def write(self, data):
+        self.writes.append(data)
+        return len(data)
+
+    def flush(self):
+        self.flush_count += 1
+
 
 class FakeSerialModule:
     SerialException = FakeSerialException
@@ -58,6 +71,7 @@ class FakeSerialModule:
     def __init__(self, sessions):
         self.sessions = list(sessions)
         self.open_count = 0
+        self.connections = []
 
     def Serial(self, *_args, **_kwargs):  # noqa: N802
         self.open_count += 1
@@ -66,7 +80,9 @@ class FakeSerialModule:
         session = self.sessions.pop(0)
         if isinstance(session, BaseException):
             raise session
-        return FakeSerialConnection(session)
+        connection = FakeSerialConnection(session)
+        self.connections.append(connection)
+        return connection
 
 
 def boot_record() -> bytes:
@@ -105,6 +121,32 @@ def page_record(
         },
         separators=(",", ":"),
     )
+
+
+def automated_page_turn_events(*, done_page=10):
+    events = [
+        b"PERF_CONTROL page_turn_auto queued\n",
+        b"PERF_CONTROL page_turn_auto started count=20 settle_ms=3000 "
+        b"spine=2 page_a=10 page_b=11\n",
+    ]
+    for iteration in range(1, 21):
+        forward = iteration % 2 == 1
+        events.append(
+            (
+                page_record(
+                    iteration,
+                    direction="forward" if forward else "backward",
+                    from_page=10 if forward else 11,
+                    to_page=11 if forward else 10,
+                    refresh_mode="half" if iteration in (1, 11) else "fast",
+                )
+                + "\n"
+            ).encode()
+        )
+    events.append(
+        f"PERF_CONTROL page_turn_auto done count=20 spine=2 page={done_page}\n".encode()
+    )
+    return events
 
 
 def provenance_args():
@@ -413,6 +455,78 @@ class PerfCollectTest(unittest.TestCase):
             "perf_collect.time.sleep"
         ), self.assertRaisesRegex(PerfRecordError, "partial PERF"):
             list(collect_serial("fake-port", 115200, 1, False))
+
+    def test_serial_page_turn_driver_retries_only_before_command_is_sent(self):
+        fake_serial = FakeSerialModule(
+            [
+                FakeSerialException("port not found"),
+                [(page_record(99) + "\n").encode(), *automated_page_turn_events()],
+            ]
+        )
+
+        with mock.patch.dict(sys.modules, {"serial": fake_serial}), mock.patch(
+            "perf_collect.time.sleep"
+        ):
+            records = collect_records(
+                collect_serial("fake-port", 115200, 5, False, True), samples=20
+            )
+
+        self.assertEqual(len(records), 20)
+        self.assertEqual(records[0].iteration, 1)
+        self.assertEqual(fake_serial.open_count, 2)
+        self.assertEqual(fake_serial.connections[0].reset_count, 1)
+        self.assertEqual(
+            fake_serial.connections[0].writes, [b"CMD:PERF_PAGE_TURNS_20\n"]
+        )
+        self.assertEqual(fake_serial.connections[0].flush_count, 1)
+
+    def test_serial_page_turn_driver_rejects_disconnect_after_command(self):
+        fake_serial = FakeSerialModule(
+            [[FakeSerialException("device reset")], automated_page_turn_events()]
+        )
+
+        with mock.patch.dict(sys.modules, {"serial": fake_serial}), mock.patch(
+            "perf_collect.time.sleep"
+        ), self.assertRaisesRegex(PerfRecordError, "disconnected after"):
+            list(collect_serial("fake-port", 115200, 5, False, True))
+
+        self.assertEqual(fake_serial.open_count, 1)
+
+    def test_serial_page_turn_driver_requires_valid_done_marker(self):
+        fake_serial = FakeSerialModule([automated_page_turn_events(done_page=11)])
+
+        with mock.patch.dict(
+            sys.modules, {"serial": fake_serial}
+        ), self.assertRaisesRegex(PerfRecordError, "finish on page A"):
+            list(collect_serial("fake-port", 115200, 5, False, True))
+
+    def test_serial_page_turn_driver_requires_queued_before_started(self):
+        events = automated_page_turn_events()
+        events.pop(0)
+        fake_serial = FakeSerialModule([events])
+
+        with mock.patch.dict(
+            sys.modules, {"serial": fake_serial}
+        ), self.assertRaisesRegex(PerfRecordError, "started before queued"):
+            list(collect_serial("fake-port", 115200, 5, False, True))
+
+    def test_page_turn_driver_requires_exact_live_scenario(self):
+        with redirect_stderr(io.StringIO()):
+            self.assertEqual(main(["--drive-page-turns"]), 2)
+            self.assertEqual(
+                main(
+                    [
+                        "--port",
+                        "fake-port",
+                        "--scenario",
+                        "page_turn_in_section",
+                        "--samples",
+                        "19",
+                        "--drive-page-turns",
+                    ]
+                ),
+                2,
+            )
 
     def test_output_report_requires_and_records_structured_provenance(self):
         with tempfile.TemporaryDirectory() as directory:

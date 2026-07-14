@@ -20,6 +20,9 @@ void beginPageTurn(bool forward, uint32_t spineIndex, uint32_t fromPage, uint32_
 void beginPageRender(uint32_t spineIndex, uint32_t page);
 void setPageTurnRefreshMode(PageRefreshMode refreshMode);
 void finishPageTurn();
+uint32_t completedPageTurns();
+bool hasPendingPageTurn();
+void cancelPendingPageTurn();
 
 #else
 
@@ -34,6 +37,9 @@ inline void beginPageTurn(bool, uint32_t, uint32_t, uint32_t, uint8_t, bool) {}
 inline void beginPageRender(uint32_t, uint32_t) {}
 inline void setPageTurnRefreshMode(PageRefreshMode) {}
 inline void finishPageTurn() {}
+inline uint32_t completedPageTurns() { return 0; }
+inline bool hasPendingPageTurn() { return false; }
+inline void cancelPendingPageTurn() {}
 
 #endif
 

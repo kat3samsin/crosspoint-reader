@@ -29,6 +29,7 @@ bool pageRenderActive = false;
 uint32_t pageRenderSpineIndex = 0;
 uint32_t pageRenderPage = 0;
 portMUX_TYPE pageTurnMux = portMUX_INITIALIZER_UNLOCKED;
+uint32_t completedPageTurnCount = 0;
 bool bootToHomePending = false;
 uint32_t epubLoadDurationUs = 0;
 uint32_t epubLoadHeapFreeBytes = 0;
@@ -193,6 +194,7 @@ void finishPageTurn() {
     completed.textAntialiasing = pageTurnTextAntialiasing;
     completed.refreshMode = pageTurnRefreshMode;
     pageTurnPending = false;
+    completedPageTurnCount++;
   }
   portEXIT_CRITICAL(&pageTurnMux);
 
@@ -210,6 +212,28 @@ void finishPageTurn() {
       static_cast<unsigned long>(completed.fromPage), static_cast<unsigned long>(completed.toPage),
       static_cast<unsigned>(completed.fontSize), completed.textAntialiasing ? "true" : "false",
       refreshModeName(completed.refreshMode), static_cast<unsigned long>(heapFreeBytes));
+}
+
+uint32_t completedPageTurns() {
+  portENTER_CRITICAL(&pageTurnMux);
+  const uint32_t count = completedPageTurnCount;
+  portEXIT_CRITICAL(&pageTurnMux);
+  return count;
+}
+
+bool hasPendingPageTurn() {
+  portENTER_CRITICAL(&pageTurnMux);
+  const bool pending = pageTurnPending;
+  portEXIT_CRITICAL(&pageTurnMux);
+  return pending;
+}
+
+void cancelPendingPageTurn() {
+  portENTER_CRITICAL(&pageTurnMux);
+  pageTurnPending = false;
+  pageTurnOverlapped = false;
+  pageRenderActive = false;
+  portEXIT_CRITICAL(&pageTurnMux);
 }
 
 }  // namespace PerformanceBenchmark

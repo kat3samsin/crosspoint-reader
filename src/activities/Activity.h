@@ -44,6 +44,9 @@ class Activity {
   virtual bool skipLoopDelay() { return false; }
   virtual bool preventAutoSleep() { return false; }
   virtual bool isReaderActivity() const { return false; }
+#ifdef ENABLE_PERF_BENCHMARK
+  virtual bool queueAutomatedPageTurns() { return false; }
+#endif
   virtual ScreenshotInfo getScreenshotInfo() const { return {}; }
 
   // Start a new activity without destroying the current one
