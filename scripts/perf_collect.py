@@ -18,6 +18,8 @@ from typing import Iterable, TextIO
 
 MAX_RECORD_BYTES = 512
 RECONNECT_DELAY_SECONDS = 0.25
+REPORT_SCHEMA = 2
+PROVENANCE_FIELDS = ("device_id", "device_model", "protocol_id")
 SCENARIO_RE = re.compile(r"^[a-z][a-z0-9_]*$")
 DIMENSION_KEYS = {
     "boot_to_home": (),
@@ -196,6 +198,18 @@ def read_text_lines(streams: Iterable[TextIO]) -> Iterable[str]:
         yield from stream
 
 
+def paths_alias(first: Path, second: Path) -> bool:
+    try:
+        if first.resolve() == second.resolve():
+            return True
+    except (OSError, RuntimeError):
+        pass
+    try:
+        return first.samefile(second)
+    except OSError:
+        return False
+
+
 def collect_records(
     lines: Iterable[str], scenario: str | None = None, samples: int | None = None
 ) -> list[PerfRecord]:
@@ -251,8 +265,10 @@ def summarize(records: Iterable[PerfRecord]) -> list[dict[str, object]]:
 
 
 def print_summary(
-    summaries: Iterable[dict[str, object]], stream: TextIO = sys.stderr
+    summaries: Iterable[dict[str, object]], stream: TextIO | None = None
 ) -> None:
+    if stream is None:
+        stream = sys.stderr
     rows = list(summaries)
     if not rows:
         print("No PERF records found.", file=stream)
@@ -330,6 +346,11 @@ def build_parser() -> argparse.ArgumentParser:
         "--samples", type=int, help="stop after this many matching records"
     )
     parser.add_argument("--label", default="benchmark")
+    parser.add_argument("--device-id", help="stable identifier for this device")
+    parser.add_argument("--device-model", help="device model, for example X4")
+    parser.add_argument(
+        "--protocol-id", help="shared identifier for comparable benchmark runs"
+    )
     parser.add_argument(
         "--output", type=Path, help="write records and summaries as JSON"
     )
@@ -345,6 +366,26 @@ def main(argv: list[str] | None = None) -> int:
         raise SystemExit("--port cannot be combined with input files")
     if args.samples is not None and args.samples <= 0:
         raise SystemExit("--samples must be positive")
+    if args.output:
+        if not args.label.strip():
+            print("error: --label must be non-empty", file=sys.stderr)
+            return 2
+        if any(paths_alias(args.output, path) for path in args.inputs):
+            print("error: --output must not overwrite an input log", file=sys.stderr)
+            return 2
+        provenance = {name: getattr(args, name) for name in PROVENANCE_FIELDS}
+        missing = [
+            name
+            for name, value in provenance.items()
+            if not isinstance(value, str) or not value.strip()
+        ]
+        if missing:
+            print(
+                "error: --output requires "
+                + ", ".join(f"--{name.replace('_', '-')}" for name in missing),
+                file=sys.stderr,
+            )
+            return 2
 
     opened: list[TextIO] = []
     try:
@@ -383,15 +424,20 @@ def main(argv: list[str] | None = None) -> int:
     print_summary(summaries)
     if args.output:
         report = {
-            "schema": 1,
+            "schema": REPORT_SCHEMA,
             "label": args.label,
             "generated_at": datetime.now(timezone.utc).isoformat(),
+            "provenance": provenance,
             "records": [record.to_dict() for record in records],
             "summary": summaries,
         }
-        args.output.write_text(
-            json.dumps(report, indent=2, sort_keys=True) + "\n", encoding="utf-8"
-        )
+        try:
+            args.output.write_text(
+                json.dumps(report, indent=2, sort_keys=True) + "\n", encoding="utf-8"
+            )
+        except OSError as exc:
+            print(f"error: {exc}", file=sys.stderr)
+            return 2
     return 0 if records else 1
 
 

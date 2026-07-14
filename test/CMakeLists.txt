@@ -46,6 +46,13 @@ add_test(
           -p test_perf_collect.py
 )
 
+add_test(
+  NAME PerfComparePythonTest
+  COMMAND ${Python3_EXECUTABLE} -m unittest discover
+          -s ${REPO_ROOT}/scripts/tests
+          -p test_perf_compare.py
+)
+
 add_subdirectory(streaming_json_parser)
 add_subdirectory(release_json_parser)
 add_subdirectory(differential_rounding)

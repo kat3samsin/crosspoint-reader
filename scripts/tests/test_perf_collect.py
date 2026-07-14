@@ -1,7 +1,11 @@
 import io
+import json
+import os
 import pathlib
 import sys
+import tempfile
 import unittest
+from contextlib import redirect_stderr
 from unittest import mock
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1]))
@@ -11,6 +15,7 @@ from perf_collect import (  # noqa: E402
     PerfRecordError,
     collect_serial,
     collect_records,
+    main,
     parse_perf_line,
     summarize,
 )
@@ -68,6 +73,17 @@ def boot_record() -> bytes:
         'PERF {"v":1,"scenario":"boot_to_home","iteration":1,'
         '"duration_us":1000,"heap_free_bytes":76000}\n'
     ).encode()
+
+
+def provenance_args():
+    return [
+        "--device-id",
+        "katre-x4",
+        "--device-model",
+        "X4",
+        "--protocol-id",
+        "katre-x4-benchmark-v1",
+    ]
 
 
 class PerfCollectTest(unittest.TestCase):
@@ -242,6 +258,80 @@ class PerfCollectTest(unittest.TestCase):
             "perf_collect.time.sleep"
         ), self.assertRaisesRegex(PerfRecordError, "partial PERF"):
             list(collect_serial("fake-port", 115200, 1, False))
+
+    def test_output_report_requires_and_records_structured_provenance(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = pathlib.Path(directory)
+            serial_log = root / "serial.log"
+            output = root / "report.json"
+            serial_log.write_bytes(boot_record())
+
+            with redirect_stderr(io.StringIO()):
+                self.assertEqual(main([str(serial_log), "--output", str(output)]), 2)
+                self.assertEqual(
+                    main(
+                        [
+                            str(serial_log),
+                            "--label",
+                            "",
+                            *provenance_args(),
+                            "--output",
+                            str(output),
+                        ]
+                    ),
+                    2,
+                )
+                self.assertEqual(
+                    main(
+                        [
+                            str(serial_log),
+                            "--label",
+                            "baseline-sha-x4",
+                            *provenance_args(),
+                            "--output",
+                            str(output),
+                        ]
+                    ),
+                    0,
+                )
+
+            report = json.loads(output.read_text(encoding="utf-8"))
+
+        self.assertEqual(report["schema"], 2)
+        self.assertEqual(
+            report["provenance"],
+            {
+                "device_id": "katre-x4",
+                "device_model": "X4",
+                "protocol_id": "katre-x4-benchmark-v1",
+            },
+        )
+
+    def test_output_report_does_not_overwrite_an_input_log_hardlink(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = pathlib.Path(directory)
+            serial_log = root / "serial.log"
+            output_alias = root / "report.json"
+            serial_log.write_bytes(boot_record())
+            os.link(serial_log, output_alias)
+            original = serial_log.read_bytes()
+
+            with redirect_stderr(io.StringIO()):
+                self.assertEqual(
+                    main(
+                        [
+                            str(serial_log),
+                            "--label",
+                            "baseline-sha-x4",
+                            *provenance_args(),
+                            "--output",
+                            str(output_alias),
+                        ]
+                    ),
+                    2,
+                )
+
+            self.assertEqual(serial_log.read_bytes(), original)
 
 
 if __name__ == "__main__":
