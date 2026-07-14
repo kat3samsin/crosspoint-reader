@@ -1263,7 +1263,13 @@ void EpubReaderActivity::render(RenderLock&& lock) {
   {
     // Unified page read: the in-progress build's in-RAM table if it has reached the page,
     // otherwise the on-disk file (finalized section, or a partial from a previous session).
+#ifdef ENABLE_PERF_BENCHMARK
+    const uint32_t renderedSpineIndex = static_cast<uint32_t>(currentSpineIndex);
+    const int renderedPage = section->currentPage;
+    auto p = section->loadPage(renderedPage);
+#else
     auto p = section->loadPage(section->currentPage);
+#endif
     if (!p) {
       LOG_ERR("ERS", "Failed to load page from SD - clearing section cache");
       automaticPageTurnActive = false;
@@ -1293,6 +1299,9 @@ void EpubReaderActivity::render(RenderLock&& lock) {
     // Collect footnotes from the loaded page
     currentPageFootnotes = std::move(p->footnotes);
 
+#ifdef ENABLE_PERF_BENCHMARK
+    PerformanceBenchmark::beginPageRender(renderedSpineIndex, static_cast<uint32_t>(renderedPage));
+#endif
     const auto start = millis();
     renderContents(std::move(p), orientedMarginTop, orientedMarginRight, orientedMarginBottom, orientedMarginLeft);
     LOG_DBG("ERS", "Rendered page in %dms", millis() - start);
