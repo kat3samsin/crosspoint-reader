@@ -1513,7 +1513,13 @@ void EpubReaderActivity::render(RenderLock&& lock) {
 #ifdef ENABLE_SERIAL_LOG
     const auto pageLoadStart = millis();
 #endif
+#ifdef ENABLE_PERF_BENCHMARK
+    const uint32_t renderedSpineIndex = static_cast<uint32_t>(currentSpineIndex);
+    const int renderedPage = section->currentPage;
+    auto p = section->loadPage(renderedPage);
+#else
     auto p = section->loadPage(section->currentPage);
+#endif
 #ifdef ENABLE_SERIAL_LOG
     LOG_DBG("ERS", "Loaded page data in %lums", millis() - pageLoadStart);
 #endif
@@ -1550,6 +1556,9 @@ void EpubReaderActivity::render(RenderLock&& lock) {
     // Collect footnotes from the loaded page
     currentPageFootnotes = std::move(p->footnotes);
 
+#ifdef ENABLE_PERF_BENCHMARK
+    PerformanceBenchmark::beginPageRender(renderedSpineIndex, static_cast<uint32_t>(renderedPage));
+#endif
     const auto start = millis();
     renderContents(std::move(p), orientedMarginTop, orientedMarginRight, orientedMarginBottom, orientedMarginLeft);
     LOG_DBG("ERS", "Rendered page in %dms", millis() - start);

@@ -18,6 +18,7 @@ void recordReadestProbe(uint32_t startedAtUs, bool managed);
 void finishBookOpen(bool managed);
 void beginPageTurn(bool forward, uint32_t spineIndex, uint32_t fromPage, uint32_t toPage,
                    uint8_t fontSize, bool textAntialiasing);
+void beginPageRender(uint32_t spineIndex, uint32_t page);
 void setPageTurnRefreshMode(PageRefreshMode refreshMode);
 void finishPageTurn();
 
@@ -32,6 +33,7 @@ inline void recordEpubLoad(uint32_t, bool) {}
 inline void recordReadestProbe(uint32_t, bool) {}
 inline void finishBookOpen(bool) {}
 inline void beginPageTurn(bool, uint32_t, uint32_t, uint32_t, uint8_t, bool) {}
+inline void beginPageRender(uint32_t, uint32_t) {}
 inline void setPageTurnRefreshMode(PageRefreshMode) {}
 inline void finishPageTurn() {}
 

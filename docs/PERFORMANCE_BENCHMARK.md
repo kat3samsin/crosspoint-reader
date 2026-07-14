@@ -103,8 +103,9 @@ refresh settings identical between builds.
    mapping overhead.
 4. Choose two adjacent pages inside a fully indexed, text-only chapter and make
    20 turns alternating between them: A to B, B to A, and repeat. Wait for each
-   panel update to finish before pressing again. Overlapping inputs are
-   discarded because the firmware coalesces them into one ambiguous render.
+   panel update to finish, then leave a three-second pause before pressing
+   again. Overlapping inputs are discarded because the firmware coalesces them
+   into one ambiguous render.
    The collector rejects iteration gaps, any third page, a mid-run font-size or
    text-antialiasing change, an unidentified refresh branch, and image pages.
    Only text-page `fast` and `half` refresh records are comparable because image
