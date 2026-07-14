@@ -13,6 +13,7 @@ sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1]))
 from perf_collect import (  # noqa: E402
     LineFramer,
     PerfRecordError,
+    build_benchmark_context,
     collect_serial,
     collect_records,
     main,
@@ -70,9 +71,40 @@ class FakeSerialModule:
 
 def boot_record() -> bytes:
     return (
-        'PERF {"v":1,"scenario":"boot_to_home","iteration":1,'
+        'PERF {"v":2,"scenario":"boot_to_home","iteration":1,'
         '"duration_us":1000,"heap_free_bytes":76000}\n'
     ).encode()
+
+
+def page_record(
+    iteration=1,
+    duration_us=1000,
+    *,
+    direction="forward",
+    spine_index=2,
+    from_page=10,
+    to_page=11,
+    font_size=3,
+    text_antialiasing=True,
+    refresh_mode="fast",
+):
+    return "PERF " + json.dumps(
+        {
+            "v": 2,
+            "scenario": "page_turn_in_section",
+            "iteration": iteration,
+            "duration_us": duration_us,
+            "direction": direction,
+            "spine_index": spine_index,
+            "from_page": from_page,
+            "to_page": to_page,
+            "font_size": font_size,
+            "text_antialiasing": text_antialiasing,
+            "refresh_mode": refresh_mode,
+            "heap_free_bytes": 76000,
+        },
+        separators=(",", ":"),
+    )
 
 
 def provenance_args():
@@ -90,7 +122,7 @@ class PerfCollectTest(unittest.TestCase):
     def test_parses_noise_and_preserves_flat_optional_fields(self):
         lines = io.StringIO(
             "boot noise\r\n"
-            'PERF {"v":1,"scenario":"book_open","iteration":1,"duration_us":1500000,'
+            'PERF {"v":2,"scenario":"book_open","iteration":1,"duration_us":1500000,'
             '"epub_index_cache":"hit","managed":true,"heap_free_bytes":76000,'
             '"firmware_sha":"abc1234"}\r\n'
         )
@@ -114,15 +146,15 @@ class PerfCollectTest(unittest.TestCase):
 
     def test_rejects_invalid_contract_values(self):
         invalid = [
-            'PERF {"v":2,"scenario":"boot_to_home","iteration":1,"duration_us":1,'
-            '"heap_free_bytes":1}',
-            'PERF {"v":1,"scenario":"boot_to_home","iteration":true,"duration_us":1,'
-            '"heap_free_bytes":1}',
-            'PERF {"v":1,"scenario":"boot_to_home","iteration":1,"duration_us":-1,'
-            '"heap_free_bytes":1}',
             'PERF {"v":1,"scenario":"boot_to_home","iteration":1,"duration_us":1,'
+            '"heap_free_bytes":1}',
+            'PERF {"v":2,"scenario":"boot_to_home","iteration":true,"duration_us":1,'
+            '"heap_free_bytes":1}',
+            'PERF {"v":2,"scenario":"boot_to_home","iteration":1,"duration_us":-1,'
+            '"heap_free_bytes":1}',
+            'PERF {"v":2,"scenario":"boot_to_home","iteration":1,"duration_us":1,'
             '"heap_free_bytes":1,"nested":{}}',
-            'PERF {"v":1,"v":1,"scenario":"boot_to_home","iteration":1,'
+            'PERF {"v":2,"v":2,"scenario":"boot_to_home","iteration":1,'
             '"duration_us":1,"heap_free_bytes":1}',
         ]
 
@@ -132,26 +164,26 @@ class PerfCollectTest(unittest.TestCase):
 
     def test_rejects_unknown_scenarios_and_invalid_required_dimensions(self):
         invalid = [
-            'PERF {"v":1,"scenario":"unknown","iteration":1,"duration_us":1,'
+            'PERF {"v":2,"scenario":"unknown","iteration":1,"duration_us":1,'
             '"heap_free_bytes":1}',
-            'PERF {"v":1,"scenario":"boot_to_home","iteration":0,"duration_us":1,'
+            'PERF {"v":2,"scenario":"boot_to_home","iteration":0,"duration_us":1,'
             '"heap_free_bytes":1}',
-            'PERF {"v":1,"scenario":"boot_to_home","iteration":1,"duration_us":1}',
-            'PERF {"v":1,"scenario":"boot_to_home","iteration":1,"duration_us":1,'
+            'PERF {"v":2,"scenario":"boot_to_home","iteration":1,"duration_us":1}',
+            'PERF {"v":2,"scenario":"boot_to_home","iteration":1,"duration_us":1,'
             '"heap_free_bytes":true}',
-            'PERF {"v":1,"scenario":"book_open","iteration":1,"duration_us":1,'
+            'PERF {"v":2,"scenario":"book_open","iteration":1,"duration_us":1,'
             '"heap_free_bytes":1,"managed":false}',
-            'PERF {"v":1,"scenario":"book_open","iteration":1,"duration_us":1,'
+            'PERF {"v":2,"scenario":"book_open","iteration":1,"duration_us":1,'
             '"heap_free_bytes":1,"epub_index_cache":"warm","managed":false}',
-            'PERF {"v":1,"scenario":"book_open","iteration":1,"duration_us":1,'
+            'PERF {"v":2,"scenario":"book_open","iteration":1,"duration_us":1,'
             '"heap_free_bytes":1,"epub_index_cache":"hit","managed":0}',
-            'PERF {"v":1,"scenario":"epub_load","iteration":1,"duration_us":1,'
+            'PERF {"v":2,"scenario":"epub_load","iteration":1,"duration_us":1,'
             '"heap_free_bytes":1}',
-            'PERF {"v":1,"scenario":"readest_probe","iteration":1,"duration_us":1,'
+            'PERF {"v":2,"scenario":"readest_probe","iteration":1,"duration_us":1,'
             '"heap_free_bytes":1}',
-            'PERF {"v":1,"scenario":"page_turn_in_section","iteration":1,'
+            'PERF {"v":2,"scenario":"page_turn_in_section","iteration":1,'
             '"duration_us":1,"heap_free_bytes":1,"direction":"next"}',
-            'PERF {"v":1,"scenario":"page_turn","iteration":1,"duration_us":1,'
+            'PERF {"v":2,"scenario":"page_turn","iteration":1,"duration_us":1,'
             '"heap_free_bytes":1,"direction":"forward"}',
         ]
 
@@ -159,17 +191,16 @@ class PerfCollectTest(unittest.TestCase):
             with self.subTest(line=line), self.assertRaises(PerfRecordError):
                 parse_perf_line(line)
 
-    def test_accepts_every_known_v1_scenario(self):
+    def test_accepts_every_known_v2_scenario(self):
         lines = [
             boot_record().decode(),
-            'PERF {"v":1,"scenario":"book_open","iteration":1,"duration_us":1,'
+            'PERF {"v":2,"scenario":"book_open","iteration":1,"duration_us":1,'
             '"heap_free_bytes":1,"epub_index_cache":"hit","managed":false}',
-            'PERF {"v":1,"scenario":"epub_load","iteration":1,"duration_us":1,'
+            'PERF {"v":2,"scenario":"epub_load","iteration":1,"duration_us":1,'
             '"heap_free_bytes":1,"epub_index_cache":"miss"}',
-            'PERF {"v":1,"scenario":"readest_probe","iteration":1,"duration_us":1,'
+            'PERF {"v":2,"scenario":"readest_probe","iteration":1,"duration_us":1,'
             '"heap_free_bytes":1,"managed":true}',
-            'PERF {"v":1,"scenario":"page_turn_in_section","iteration":1,'
-            '"duration_us":1,"heap_free_bytes":1,"direction":"backward"}',
+            page_record(direction="backward", from_page=11, to_page=10),
         ]
 
         records = collect_records(lines)
@@ -185,10 +216,117 @@ class PerfCollectTest(unittest.TestCase):
             ],
         )
 
+    def test_page_turn_requires_and_strictly_validates_context_fields(self):
+        payload = json.loads(page_record()[5:])
+        required = (
+            "spine_index",
+            "from_page",
+            "to_page",
+            "font_size",
+            "text_antialiasing",
+            "refresh_mode",
+        )
+        invalid_values = {
+            "spine_index": -1,
+            "from_page": True,
+            "to_page": "11",
+            "font_size": 4,
+            "text_antialiasing": 1,
+            "refresh_mode": "unknown",
+        }
+
+        for field in required:
+            missing = dict(payload)
+            del missing[field]
+            line = "PERF " + json.dumps(missing, separators=(",", ":"))
+            with self.subTest(missing=field), self.assertRaises(PerfRecordError):
+                parse_perf_line(line)
+
+        for field, value in invalid_values.items():
+            invalid = {**payload, field: value}
+            line = "PERF " + json.dumps(invalid, separators=(",", ":"))
+            with self.subTest(invalid=field), self.assertRaises(PerfRecordError):
+                parse_perf_line(line)
+
+        with self.assertRaisesRegex(PerfRecordError, "refresh_mode must be one of"):
+            parse_perf_line(page_record(refresh_mode="image"))
+
+        with self.assertRaisesRegex(PerfRecordError, "advance exactly one"):
+            parse_perf_line(page_record(to_page=12))
+        with self.assertRaisesRegex(PerfRecordError, "retreat exactly one"):
+            parse_perf_line(page_record(direction="backward", from_page=11, to_page=11))
+
+    def test_page_context_rejects_iteration_gaps_and_mid_run_setting_changes(self):
+        valid = collect_records(
+            [
+                page_record(4, from_page=10, to_page=11),
+                page_record(5, direction="backward", from_page=11, to_page=10),
+            ]
+        )
+        context = build_benchmark_context(valid)
+        self.assertEqual(context["page_turn_in_section"]["font_size"], 3)
+        self.assertEqual(context["page_turn_in_section"]["trace"][1]["to_page"], 10)
+        self.assertNotIn("iteration", context["page_turn_in_section"]["trace"][0])
+
+        gaps = collect_records(
+            [
+                page_record(4, from_page=10, to_page=11),
+                page_record(6, direction="backward", from_page=11, to_page=10),
+            ]
+        )
+        with self.assertRaisesRegex(PerfRecordError, "consecutive"):
+            build_benchmark_context(gaps)
+
+        for changed_field, changed_value in (
+            ("font_size", 2),
+            ("text_antialiasing", False),
+        ):
+            kwargs = {changed_field: changed_value}
+            mixed = collect_records(
+                [
+                    page_record(4, from_page=10, to_page=11),
+                    page_record(
+                        5,
+                        direction="backward",
+                        from_page=11,
+                        to_page=10,
+                        **kwargs,
+                    ),
+                ]
+            )
+            with self.subTest(field=changed_field), self.assertRaisesRegex(
+                PerfRecordError, "changed within the report"
+            ):
+                build_benchmark_context(mixed)
+
+        non_alternating = collect_records(
+            [
+                page_record(4, from_page=10, to_page=11),
+                page_record(5, from_page=11, to_page=12),
+            ]
+        )
+        with self.assertRaisesRegex(PerfRecordError, "exactly two pages"):
+            build_benchmark_context(non_alternating)
+
+        odd_trace = collect_records(
+            [
+                page_record(4, from_page=10, to_page=11),
+                page_record(5, direction="backward", from_page=11, to_page=10),
+                page_record(6, from_page=10, to_page=11),
+            ]
+        )
+        with self.assertRaisesRegex(PerfRecordError, "even alternating"):
+            build_benchmark_context(odd_trace)
+
     def test_summarizes_median_and_nearest_rank_p95_by_dimensions(self):
         lines = [
-            f'PERF {{"v":1,"scenario":"page_turn_in_section","iteration":{index},'
-            f'"duration_us":{duration},"direction":"forward","heap_free_bytes":76000}}\n'
+            page_record(
+                index,
+                duration,
+                from_page=9 + index,
+                to_page=10 + index,
+                refresh_mode="half",
+            )
             for index, duration in enumerate((100_000, 200_000, 300_000, 400_000), 1)
         ]
 
@@ -197,14 +335,31 @@ class PerfCollectTest(unittest.TestCase):
         self.assertEqual(summary["count"], 4)
         self.assertEqual(summary["median_ms"], 250.0)
         self.assertEqual(summary["p95_ms"], 400.0)
-        self.assertEqual(summary["dimensions"], {"direction": "forward"})
+        self.assertEqual(summary["dimensions"], {})
+
+    def test_summarizes_alternating_modes_as_one_page_turn_sample_set(self):
+        lines = [
+            page_record(
+                index,
+                direction="forward" if index % 2 else "backward",
+                from_page=10 if index % 2 else 11,
+                to_page=11 if index % 2 else 10,
+                refresh_mode="half" if index in (5, 15) else "fast",
+            )
+            for index in range(1, 21)
+        ]
+
+        summaries = summarize(collect_records(lines))
+
+        self.assertEqual(len(summaries), 1)
+        self.assertEqual(summaries[0]["count"], 20)
+        self.assertEqual(summaries[0]["dimensions"], {})
 
     def test_scenario_filter_excludes_other_records(self):
         lines = [
-            'PERF {"v":1,"scenario":"book_open","iteration":1,"duration_us":1,'
+            'PERF {"v":2,"scenario":"book_open","iteration":1,"duration_us":1,'
             '"epub_index_cache":"hit","managed":false,"heap_free_bytes":76000}\n',
-            'PERF {"v":1,"scenario":"page_turn_in_section","iteration":1,'
-            '"duration_us":2,"direction":"forward","heap_free_bytes":76000}\n',
+            page_record(),
         ]
 
         records = collect_records(lines, scenario="page_turn_in_section")
@@ -251,7 +406,7 @@ class PerfCollectTest(unittest.TestCase):
 
     def test_serial_rejects_partial_perf_record_on_disconnect(self):
         fake_serial = FakeSerialModule(
-            [[b'PERF {"v":1', FakeSerialException("device reset")]]
+            [[b'PERF {"v":2', FakeSerialException("device reset")]]
         )
 
         with mock.patch.dict(sys.modules, {"serial": fake_serial}), mock.patch(
@@ -297,7 +452,8 @@ class PerfCollectTest(unittest.TestCase):
 
             report = json.loads(output.read_text(encoding="utf-8"))
 
-        self.assertEqual(report["schema"], 2)
+        self.assertEqual(report["schema"], 3)
+        self.assertEqual(report["benchmark_context"], {})
         self.assertEqual(
             report["provenance"],
             {

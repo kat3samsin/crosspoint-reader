@@ -25,7 +25,7 @@ python3 scripts/perf_collect.py \
   --label "katre-fast-$(git rev-parse --short HEAD)-x4" \
   --device-id "katre-x4" \
   --device-model "X4" \
-  --protocol-id "katre-x4-benchmark-v1" \
+  --protocol-id "katre-x4-benchmark-v2" \
   --output benchmark-katre-fast-x4-boot.json
 ```
 
@@ -55,7 +55,7 @@ python3 scripts/perf_collect.py crosspoint-serial.log \
   --label "katre-fast-$(git rev-parse --short HEAD)-x4" \
   --device-id "katre-x4" \
   --device-model "X4" \
-  --protocol-id "katre-x4-benchmark-v1" \
+  --protocol-id "katre-x4-benchmark-v2" \
   --output benchmark-katre-fast.json
 ```
 
@@ -69,10 +69,13 @@ python3 scripts/perf_compare.py \
 ```
 
 The comparator recomputes summaries from the raw records and rejects different
-devices, protocol IDs, scenarios, cache states, managed states, directions, or
-sample counts. Positive percentages mean the fast candidate took less time.
-Treat the percentages as descriptive results from this X4 run, not statistical
-significance.
+devices, protocol IDs, scenarios, cache states, managed states, sample counts,
+or page traces. Page-turn records use wire version 2 and reports use schema 3.
+Their benchmark context contains the exact spine/page/direction/refresh trace
+plus the constant font-size and text-antialiasing settings; raw iteration
+numbers are normalized after consecutive-order validation. Positive
+percentages mean the fast candidate took less time. Treat the percentages as
+descriptive results from this X4 run, not statistical significance.
 
 For `book_open`, compare upstream only with the fast branch's unmanaged
 (`managed=false`) report. Managed Readest books and `readest_probe` have no
@@ -98,9 +101,14 @@ refresh settings identical between builds.
    unmanaged EPUB.
    `readest_probe` isolates manifest ownership, hashing, sidecar, and progress
    mapping overhead.
-4. Make 20 forward page turns inside a fully indexed, text-only chapter. Wait
-   for each panel update to finish before pressing again. Overlapping inputs are
+4. Choose two adjacent pages inside a fully indexed, text-only chapter and make
+   20 turns alternating between them: A to B, B to A, and repeat. Wait for each
+   panel update to finish before pressing again. Overlapping inputs are
    discarded because the firmware coalesces them into one ambiguous render.
+   The collector rejects iteration gaps, any third page, a mid-run font-size or
+   text-antialiasing change, an unidentified refresh branch, and image pages.
+   Only text-page `fast` and `half` refresh records are comparable because image
+   pages can execute several different display sequences.
    `page_turn_in_section` deliberately excludes chapter boundaries; keep
    automatic page turn off.
 5. Save `/api/status` from the same idle state for each build so free heap is
