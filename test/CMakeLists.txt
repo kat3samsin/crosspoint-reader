@@ -23,6 +23,7 @@ set(BUILD_GMOCK OFF CACHE BOOL "" FORCE)
 FetchContent_MakeAvailable(googletest)
 
 set(REPO_ROOT "${CMAKE_CURRENT_SOURCE_DIR}/..")
+find_package(Python3 COMPONENTS Interpreter REQUIRED)
 
 add_library(crosspoint_test_common INTERFACE)
 target_include_directories(crosspoint_test_common INTERFACE
@@ -37,6 +38,13 @@ target_compile_options(crosspoint_test_common INTERFACE
 
 enable_testing()
 include(GoogleTest)
+
+add_test(
+  NAME PerfCollectPythonTest
+  COMMAND ${Python3_EXECUTABLE} -m unittest discover
+          -s ${REPO_ROOT}/scripts/tests
+          -p test_perf_collect.py
+)
 
 add_subdirectory(streaming_json_parser)
 add_subdirectory(release_json_parser)
