@@ -4,6 +4,7 @@
 #include <HalStorage.h>
 #include <I18n.h>
 #include <Memory.h>
+#include <PerformanceBenchmark.h>
 
 #include <optional>
 
@@ -43,10 +44,12 @@ std::unique_ptr<Epub> ReaderActivity::loadEpub(const std::string& path) {
   // indexing popup so it isn't a silent wait on the home screen. The cachePath/hash is known at
   // construction, so this check is valid before load(); a cached open loads in a blink -> no popup.
   const bool uncached = !Storage.exists((epub->getCachePath() + "/book.bin").c_str());
+  PerformanceBenchmark::setBookCacheHit(!uncached);
   if (uncached) {
     GUI.drawPopup(renderer, tr(STR_INDEXING));
   }
   bool loaded;
+  const uint32_t epubLoadStartedAtUs = PerformanceBenchmark::nowUs();
   {
     // Lend the framebuffer's 48 KB to the container parse (expat + spine/TOC
     // build). The popup just displayed stays on the panel; whichever reader
@@ -55,6 +58,7 @@ std::unique_ptr<Epub> ReaderActivity::loadEpub(const std::string& path) {
     if (uncached) loan.emplace(renderer);
     loaded = epub->load(true, SETTINGS.embeddedStyle == 0);
   }
+  PerformanceBenchmark::recordEpubLoad(epubLoadStartedAtUs, !uncached);
   if (loaded) {
     return epub;
   }

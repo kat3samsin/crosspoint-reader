@@ -9,6 +9,7 @@
 #include <I18n.h>
 #include <JsonSettingsIO.h>
 #include <Logging.h>
+#include <PerformanceBenchmark.h>
 #include <Memory.h>
 #include <esp_system.h>
 
@@ -876,6 +877,7 @@ void EpubReaderActivity::toggleAutoPageTurn(const uint8_t selectedPageTurnOption
 }
 
 void EpubReaderActivity::pageTurn(bool isForwardTurn) {
+  bool turnedWithinSection = false;
   if (isForwardTurn) {
     // Advance within the section while there are (or may still be) more pages: either a built
     // page ahead, or the section is still building (windowed), in which case more pages exist
@@ -884,6 +886,7 @@ void EpubReaderActivity::pageTurn(bool isForwardTurn) {
     // the live pageCount alone would mistake the build watermark for the end of a giant spine.
     if (section->currentPage < section->pageCount - 1 || section->isBuilding()) {
       section->currentPage++;
+      turnedWithinSection = true;
     } else {
       // We don't want to delete the section mid-render, so grab the semaphore
       {
@@ -896,6 +899,7 @@ void EpubReaderActivity::pageTurn(bool isForwardTurn) {
   } else {
     if (section->currentPage > 0) {
       section->currentPage--;
+      turnedWithinSection = true;
     } else if (currentSpineIndex > 0) {
       // We don't want to delete the section mid-render, so grab the semaphore
       {
@@ -906,6 +910,9 @@ void EpubReaderActivity::pageTurn(bool isForwardTurn) {
         section.reset();
       }
     }
+  }
+  if (turnedWithinSection) {
+    PerformanceBenchmark::beginPageTurn(isForwardTurn);
   }
   lastPageTurnTime = millis();
   requestUpdate();
@@ -1282,6 +1289,8 @@ void EpubReaderActivity::render(RenderLock&& lock) {
     const auto start = millis();
     renderContents(std::move(p), orientedMarginTop, orientedMarginRight, orientedMarginBottom, orientedMarginLeft);
     LOG_DBG("ERS", "Rendered page in %dms", millis() - start);
+    PerformanceBenchmark::finishBookOpen();
+    PerformanceBenchmark::finishPageTurn();
   }
   // Only persist when the position actually changed. render() also runs on menu,
   // bookmark and screenshot re-renders, and writeAtomic is several FAT ops for 6 bytes.

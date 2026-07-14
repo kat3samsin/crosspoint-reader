@@ -6,6 +6,7 @@
 #include <GfxRenderer.h>
 #include <HalStorage.h>
 #include <I18n.h>
+#include <PerformanceBenchmark.h>
 #include <Utf8.h>
 #include <Xtc.h>
 
@@ -260,6 +261,7 @@ void HomeActivity::render(RenderLock&&) {
   GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4);
 
   renderer.displayBuffer();
+  PerformanceBenchmark::recordHomePaint();
 
   if (!firstRenderDone) {
     firstRenderDone = true;
