@@ -12,6 +12,7 @@
 #include <HalTiltSensor.h>
 #include <I18n.h>
 #include <Logging.h>
+#include <PerformanceBenchmark.h>
 #include <SPI.h>
 #include <WiFi.h>
 #include <builtinFonts/all.h>
@@ -443,11 +444,13 @@ void setup() {
     // target == home (or reader with no open book): land on home — don't fall
     // through to the sleep-wake "resume reader" logic, which fires on stale
     // openEpubPath + lastSleepFromReader from a prior session.
+    PerformanceBenchmark::expectBootToHome();
     activityManager.goHome();
   } else if (APP_STATE.openEpubPath.empty() || !APP_STATE.lastSleepFromReader ||
              mappedInputManager.isPressed(MappedInputManager::Button::Back) || APP_STATE.readerActivityLoadCount > 0) {
     // Boot to home screen if no book is open, last sleep was not from reader, back button is held, or reader activity
     // crashed (indicated by readerActivityLoadCount > 0)
+    PerformanceBenchmark::expectBootToHome();
     activityManager.goHome();
   } else {
     // Clear app state to avoid getting into a boot loop if the epub doesn't load
