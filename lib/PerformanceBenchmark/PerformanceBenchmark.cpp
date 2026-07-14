@@ -30,6 +30,10 @@ uint32_t pageTurnToPage = 0;
 uint8_t pageTurnFontSize = 0;
 bool pageTurnTextAntialiasing = false;
 PageRefreshMode pageTurnRefreshMode = PageRefreshMode::UNKNOWN;
+bool pageRenderActive = false;
+uint32_t pageRenderSpineIndex = 0;
+uint32_t pageRenderPage = 0;
+portMUX_TYPE pageTurnMux = portMUX_INITIALIZER_UNLOCKED;
 bool bootToHomePending = false;
 uint32_t epubLoadDurationUs = 0;
 uint32_t epubLoadHeapFreeBytes = 0;
@@ -60,6 +64,19 @@ const char* refreshModeName(const PageRefreshMode refreshMode) {
       return "unknown";
   }
 }
+
+struct CompletedPageTurn {
+  bool ready = false;
+  uint32_t iteration = 0;
+  uint32_t durationUs = 0;
+  bool forward = true;
+  uint32_t spineIndex = 0;
+  uint32_t fromPage = 0;
+  uint32_t toPage = 0;
+  uint8_t fontSize = 0;
+  bool textAntialiasing = false;
+  PageRefreshMode refreshMode = PageRefreshMode::UNKNOWN;
+};
 
 }  // namespace
 
@@ -140,11 +157,13 @@ void finishBookOpen(const bool managed) {
 
 void beginPageTurn(const bool forward, const uint32_t spineIndex, const uint32_t fromPage,
                    const uint32_t toPage, const uint8_t fontSize, const bool textAntialiasing) {
+  portENTER_CRITICAL(&pageTurnMux);
   if (pageTurnPending) {
     // Multiple inputs before the panel paint completes are coalesced into one
     // render. Discard that ambiguous sample instead of attributing it to the
     // latest input.
     pageTurnOverlapped = true;
+    portEXIT_CRITICAL(&pageTurnMux);
     return;
   }
   pageTurnIteration++;
@@ -158,32 +177,64 @@ void beginPageTurn(const bool forward, const uint32_t spineIndex, const uint32_t
   pageTurnRefreshMode = PageRefreshMode::UNKNOWN;
   pageTurnPending = true;
   pageTurnOverlapped = false;
+  portEXIT_CRITICAL(&pageTurnMux);
+}
+
+void beginPageRender(const uint32_t spineIndex, const uint32_t page) {
+  portENTER_CRITICAL(&pageTurnMux);
+  pageRenderSpineIndex = spineIndex;
+  pageRenderPage = page;
+  pageRenderActive = true;
+  portEXIT_CRITICAL(&pageTurnMux);
 }
 
 void setPageTurnRefreshMode(const PageRefreshMode refreshMode) {
-  if (pageTurnPending) pageTurnRefreshMode = refreshMode;
+  portENTER_CRITICAL(&pageTurnMux);
+  if (pageTurnPending && pageRenderActive && pageRenderSpineIndex == pageTurnSpineIndex &&
+      pageRenderPage == pageTurnToPage) {
+    pageTurnRefreshMode = refreshMode;
+  }
+  portEXIT_CRITICAL(&pageTurnMux);
 }
 
 void finishPageTurn() {
-  if (!pageTurnPending) return;
-  if (pageTurnOverlapped) {
+  CompletedPageTurn completed;
+  portENTER_CRITICAL(&pageTurnMux);
+  const bool renderedTarget = pageRenderActive && pageRenderSpineIndex == pageTurnSpineIndex &&
+                              pageRenderPage == pageTurnToPage;
+  pageRenderActive = false;
+  if (pageTurnPending && pageTurnOverlapped) {
     pageTurnPending = false;
     pageTurnOverlapped = false;
-    return;
+  } else if (pageTurnPending && renderedTarget) {
+    completed.ready = true;
+    completed.iteration = pageTurnIteration;
+    completed.durationUs = elapsedUs(pageTurnStartedAtUs, nowUs());
+    completed.forward = pageTurnForward;
+    completed.spineIndex = pageTurnSpineIndex;
+    completed.fromPage = pageTurnFromPage;
+    completed.toPage = pageTurnToPage;
+    completed.fontSize = pageTurnFontSize;
+    completed.textAntialiasing = pageTurnTextAntialiasing;
+    completed.refreshMode = pageTurnRefreshMode;
+    pageTurnPending = false;
   }
-  const uint32_t durationUs = elapsedUs(pageTurnStartedAtUs, nowUs());
+  portEXIT_CRITICAL(&pageTurnMux);
+
+  // A button press can arrive while a previous queued render is still
+  // finishing. A mismatched render leaves the sample pending for its target.
+  if (!completed.ready) return;
   const uint32_t heapFreeBytes = ESP.getFreeHeap();
-  pageTurnPending = false;
   logSerial.printf(
       "PERF {\"v\":2,\"scenario\":\"page_turn_in_section\",\"iteration\":%lu,\"duration_us\":%lu,"
       "\"direction\":\"%s\",\"spine_index\":%lu,\"from_page\":%lu,\"to_page\":%lu,"
       "\"font_size\":%u,\"text_antialiasing\":%s,\"refresh_mode\":\"%s\","
       "\"heap_free_bytes\":%lu}\n",
-      static_cast<unsigned long>(pageTurnIteration), static_cast<unsigned long>(durationUs),
-      pageTurnForward ? "forward" : "backward", static_cast<unsigned long>(pageTurnSpineIndex),
-      static_cast<unsigned long>(pageTurnFromPage), static_cast<unsigned long>(pageTurnToPage),
-      static_cast<unsigned>(pageTurnFontSize), pageTurnTextAntialiasing ? "true" : "false",
-      refreshModeName(pageTurnRefreshMode), static_cast<unsigned long>(heapFreeBytes));
+      static_cast<unsigned long>(completed.iteration), static_cast<unsigned long>(completed.durationUs),
+      completed.forward ? "forward" : "backward", static_cast<unsigned long>(completed.spineIndex),
+      static_cast<unsigned long>(completed.fromPage), static_cast<unsigned long>(completed.toPage),
+      static_cast<unsigned>(completed.fontSize), completed.textAntialiasing ? "true" : "false",
+      refreshModeName(completed.refreshMode), static_cast<unsigned long>(heapFreeBytes));
 }
 
 }  // namespace PerformanceBenchmark
