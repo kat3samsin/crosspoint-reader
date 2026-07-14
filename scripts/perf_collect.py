@@ -17,13 +17,17 @@ from typing import Iterable, TextIO
 
 
 MAX_RECORD_BYTES = 512
+RECONNECT_DELAY_SECONDS = 0.25
 SCENARIO_RE = re.compile(r"^[a-z][a-z0-9_]*$")
 DIMENSION_KEYS = {
-    "epub_load": ("cache",),
+    "boot_to_home": (),
+    "book_open": ("epub_index_cache", "managed"),
+    "epub_load": ("epub_index_cache",),
+    "page_turn_in_section": ("direction",),
     "readest_probe": ("managed",),
-    "book_open": ("cache", "managed"),
-    "page_turn": ("direction",),
 }
+CACHE_STATES = frozenset({"hit", "miss", "unknown"})
+PAGE_DIRECTIONS = frozenset({"forward", "backward"})
 
 
 class PerfRecordError(ValueError):
@@ -66,6 +70,11 @@ class LineFramer:
             lines.append(raw.rstrip(b"\r").decode("utf-8", errors="replace"))
         return lines
 
+    def take_partial(self) -> bytes:
+        partial = bytes(self._buffer)
+        self._buffer.clear()
+        return partial
+
 
 def _object_without_duplicate_keys(
     pairs: list[tuple[str, object]]
@@ -84,6 +93,47 @@ def _non_negative_int(value: object, field: str) -> int:
     if value > 0xFFFFFFFF:
         raise PerfRecordError(f"{field} exceeds uint32 range")
     return value
+
+
+def _required_field(
+    fields: dict[str, str | int | bool], field: str
+) -> str | int | bool:
+    if field not in fields:
+        raise PerfRecordError(f"missing field(s): {field}")
+    return fields[field]
+
+
+def _require_uint32(fields: dict[str, str | int | bool], field: str) -> None:
+    _non_negative_int(_required_field(fields, field), field)
+
+
+def _require_bool(fields: dict[str, str | int | bool], field: str) -> None:
+    if not isinstance(_required_field(fields, field), bool):
+        raise PerfRecordError(f"{field} must be a boolean")
+
+
+def _require_enum(
+    fields: dict[str, str | int | bool], field: str, allowed: frozenset[str]
+) -> None:
+    value = _required_field(fields, field)
+    if not isinstance(value, str) or value not in allowed:
+        choices = ", ".join(sorted(allowed))
+        raise PerfRecordError(f"{field} must be one of: {choices}")
+
+
+def _validate_scenario_fields(
+    scenario: str, fields: dict[str, str | int | bool]
+) -> None:
+    _require_uint32(fields, "heap_free_bytes")
+    if scenario == "book_open":
+        _require_enum(fields, "epub_index_cache", CACHE_STATES)
+        _require_bool(fields, "managed")
+    elif scenario == "epub_load":
+        _require_enum(fields, "epub_index_cache", CACHE_STATES)
+    elif scenario == "readest_probe":
+        _require_bool(fields, "managed")
+    elif scenario == "page_turn_in_section":
+        _require_enum(fields, "direction", PAGE_DIRECTIONS)
 
 
 def parse_perf_line(line: str) -> PerfRecord | None:
@@ -121,7 +171,11 @@ def parse_perf_line(line: str) -> PerfRecord | None:
     scenario = payload.pop("scenario")
     if not isinstance(scenario, str) or not SCENARIO_RE.fullmatch(scenario):
         raise PerfRecordError("scenario must match [a-z][a-z0-9_]*")
+    if scenario not in DIMENSION_KEYS:
+        raise PerfRecordError(f"unsupported scenario: {scenario}")
     iteration = _non_negative_int(payload.pop("iteration"), "iteration")
+    if iteration < 1:
+        raise PerfRecordError("iteration must be at least 1")
     duration_us = _non_negative_int(payload.pop("duration_us"), "duration_us")
 
     fields: dict[str, str | int | bool] = {}
@@ -131,6 +185,8 @@ def parse_perf_line(line: str) -> PerfRecord | None:
         if not isinstance(value, (str, int, bool)) or value is None:
             raise PerfRecordError(f"optional field {key} must be a flat scalar")
         fields[key] = value
+
+    _validate_scenario_fields(scenario, fields)
 
     return PerfRecord(version, scenario, iteration, duration_us, fields)
 
@@ -227,16 +283,33 @@ def collect_serial(port: str, baud: int, timeout: float, echo: bool) -> Iterable
         ) from exc
 
     deadline = time.monotonic() + timeout
-    framer = LineFramer()
-    with serial.Serial(port, baud, timeout=0.25) as connection:
-        while time.monotonic() < deadline:
-            chunk = connection.read(connection.in_waiting or 1)
-            if not chunk:
-                continue
-            for line in framer.feed(chunk):
-                if echo:
-                    print(line)
-                yield line
+    while time.monotonic() < deadline:
+        framer = LineFramer()
+        try:
+            with serial.Serial(port, baud, timeout=0.25) as connection:
+                while time.monotonic() < deadline:
+                    chunk = connection.read(connection.in_waiting or 1)
+                    if not chunk:
+                        continue
+                    for line in framer.feed(chunk):
+                        if echo:
+                            print(line)
+                        yield line
+
+            partial = framer.take_partial()
+            if partial.startswith(b"PERF "):
+                raise PerfRecordError("collection ended with a partial PERF record")
+            return
+        except (serial.SerialException, OSError) as exc:
+            partial = framer.take_partial()
+            if partial.startswith(b"PERF "):
+                raise PerfRecordError(
+                    "serial disconnect left a partial PERF record"
+                ) from exc
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                return
+            time.sleep(min(RECONNECT_DELAY_SECONDS, remaining))
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -252,9 +325,7 @@ def build_parser() -> argparse.ArgumentParser:
         default=120.0,
         help="live collection timeout in seconds",
     )
-    parser.add_argument(
-        "--scenario", choices=sorted(set(DIMENSION_KEYS) | {"boot_to_home"})
-    )
+    parser.add_argument("--scenario", choices=sorted(DIMENSION_KEYS))
     parser.add_argument(
         "--samples", type=int, help="stop after this many matching records"
     )

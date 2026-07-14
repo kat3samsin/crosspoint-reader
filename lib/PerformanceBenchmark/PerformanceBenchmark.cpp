@@ -90,7 +90,7 @@ void finishBookOpen(const bool managed) {
   bookOpenPending = false;
   logSerial.printf(
       "PERF {\"v\":1,\"scenario\":\"book_open\",\"iteration\":%lu,\"duration_us\":%lu,"
-      "\"cache\":\"%s\",\"managed\":%s,\"heap_free_bytes\":%lu}\n",
+      "\"epub_index_cache\":\"%s\",\"managed\":%s,\"heap_free_bytes\":%lu}\n",
       static_cast<unsigned long>(bookIteration), static_cast<unsigned long>(durationUs),
       cacheName(bookCacheKnown, bookCacheHit), managed ? "true" : "false",
       static_cast<unsigned long>(heapFreeBytes));
@@ -99,7 +99,7 @@ void finishBookOpen(const bool managed) {
   if (epubLoadPending) {
     logSerial.printf(
         "PERF {\"v\":1,\"scenario\":\"epub_load\",\"iteration\":%lu,\"duration_us\":%lu,"
-        "\"cache\":\"%s\",\"heap_free_bytes\":%lu}\n",
+        "\"epub_index_cache\":\"%s\",\"heap_free_bytes\":%lu}\n",
         static_cast<unsigned long>(bookIteration), static_cast<unsigned long>(epubLoadDurationUs),
         cacheName(bookCacheKnown, bookCacheHit), static_cast<unsigned long>(epubLoadHeapFreeBytes));
     epubLoadPending = false;
@@ -140,7 +140,7 @@ void finishPageTurn() {
   const uint32_t heapFreeBytes = ESP.getFreeHeap();
   pageTurnPending = false;
   logSerial.printf(
-      "PERF {\"v\":1,\"scenario\":\"page_turn\",\"iteration\":%lu,\"duration_us\":%lu,"
+      "PERF {\"v\":1,\"scenario\":\"page_turn_in_section\",\"iteration\":%lu,\"duration_us\":%lu,"
       "\"direction\":\"%s\",\"heap_free_bytes\":%lu}\n",
       static_cast<unsigned long>(pageTurnIteration), static_cast<unsigned long>(durationUs),
       pageTurnForward ? "forward" : "backward", static_cast<unsigned long>(heapFreeBytes));
