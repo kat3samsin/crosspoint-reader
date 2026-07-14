@@ -13,6 +13,7 @@ lib/I18n/I18nStrings.cpp
 build
 **/__pycache__/
 /compile_commands.json
+/benchmark-*.json
 /.cache
 .history/
 /.venv

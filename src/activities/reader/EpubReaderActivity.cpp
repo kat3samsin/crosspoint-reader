@@ -1088,6 +1088,9 @@ void EpubReaderActivity::toggleAutoPageTurn(const uint8_t selectedPageTurnOption
 }
 
 void EpubReaderActivity::pageTurn(bool isForwardTurn) {
+#ifdef ENABLE_PERF_BENCHMARK
+  const int fromPage = section->currentPage;
+#endif
   bool turnedWithinSection = false;
   if (isForwardTurn) {
     // Advance within the section while there are (or may still be) more pages: either a built
@@ -1123,7 +1126,11 @@ void EpubReaderActivity::pageTurn(bool isForwardTurn) {
     }
   }
   if (turnedWithinSection) {
-    PerformanceBenchmark::beginPageTurn(isForwardTurn);
+#ifdef ENABLE_PERF_BENCHMARK
+    PerformanceBenchmark::beginPageTurn(
+        isForwardTurn, static_cast<uint32_t>(currentSpineIndex), static_cast<uint32_t>(fromPage),
+        static_cast<uint32_t>(section->currentPage), SETTINGS.fontSize, SETTINGS.textAntiAliasing != 0);
+#endif
   }
   lastPageTurnTime = millis();
   requestUpdate();
@@ -1548,7 +1555,9 @@ void EpubReaderActivity::render(RenderLock&& lock) {
     LOG_DBG("ERS", "Rendered page in %dms", millis() - start);
     lastRenderCompleteMs = millis();
     PerformanceBenchmark::finishBookOpen(isReadestManagedBook);
+#ifdef ENABLE_PERF_BENCHMARK
     PerformanceBenchmark::finishPageTurn();
+#endif
   }
   const bool readestProgressReady = acknowledgeReadestProgressAfterRender();
   // Only persist when the position actually changed. render() also runs on menu,
@@ -1822,6 +1831,9 @@ void EpubReaderActivity::renderContents(std::unique_ptr<Page> page, const int or
   const auto tBwRender = millis();
 
   if (pageHasImages) {
+#ifdef ENABLE_PERF_BENCHMARK
+    PerformanceBenchmark::setPageTurnRefreshMode(PerformanceBenchmark::PageRefreshMode::IMAGE);
+#endif
     // Double FAST_REFRESH with selective image blanking (pablohc's technique):
     // HALF_REFRESH sets particles too firmly for the grayscale LUT to adjust.
     // Instead, blank only the image area and do two fast refreshes.
@@ -1852,6 +1864,11 @@ void EpubReaderActivity::renderContents(std::unique_ptr<Page> page, const int or
     // regardless of residue.
     pagesUntilFullRefresh = 1;
   } else {
+#ifdef ENABLE_PERF_BENCHMARK
+    PerformanceBenchmark::setPageTurnRefreshMode(
+        pagesUntilFullRefresh <= 1 ? PerformanceBenchmark::PageRefreshMode::HALF
+                                   : PerformanceBenchmark::PageRefreshMode::FAST);
+#endif
     // Async form: start the waveform and return so the grayscale plane rendering
     // below overlaps the panel's refresh time instead of following it.
     ReaderUtils::displayWithRefreshCycle(renderer, pagesUntilFullRefresh, overlapRefresh);
