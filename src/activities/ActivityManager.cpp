@@ -275,6 +275,12 @@ bool ActivityManager::handleForcedRefresh() { return currentActivity && currentA
 
 bool ActivityManager::skipLoopDelay() const { return currentActivity && currentActivity->skipLoopDelay(); }
 
+#ifdef ENABLE_PERF_BENCHMARK
+bool ActivityManager::queueAutomatedPageTurns() {
+  return currentActivity && currentActivity->queueAutomatedPageTurns();
+}
+#endif
+
 ScreenshotInfo ActivityManager::getScreenshotInfo() const {
   if (currentActivity) {
     return currentActivity->getScreenshotInfo();

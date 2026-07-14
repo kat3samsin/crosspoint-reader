@@ -48,6 +48,9 @@ class Activity {
   virtual bool handleForcedRefresh() { return false; }
   virtual bool isHomeActivity() const { return false; }
   virtual bool handleHomeGesture() { return false; }
+#ifdef ENABLE_PERF_BENCHMARK
+  virtual bool queueAutomatedPageTurns() { return false; }
+#endif
   virtual ScreenshotInfo getScreenshotInfo() const { return {}; }
 
   // Start a new activity without destroying the current one

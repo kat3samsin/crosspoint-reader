@@ -104,6 +104,9 @@ class ActivityManager {
   bool isReaderActivity() const;
   bool handleForcedRefresh();
   bool skipLoopDelay() const;
+#ifdef ENABLE_PERF_BENCHMARK
+  bool queueAutomatedPageTurns();
+#endif
   ScreenshotInfo getScreenshotInfo() const;
 
   // If immediate is true, the update will be triggered immediately.

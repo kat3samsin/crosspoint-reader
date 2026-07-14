@@ -95,6 +95,21 @@ class EpubReaderActivity final : public Activity {
   // tick; the blocking extension in render() remains the fallback past the watermark.
   bool partialRebuildStartFailed = false;
 
+#ifdef ENABLE_PERF_BENCHMARK
+  enum class BenchmarkPageTurnState : uint8_t { IDLE, ARMING, SETTLING, AWAITING_RENDER };
+  static constexpr uint8_t BENCHMARK_PAGE_TURN_COUNT = 20;
+  static constexpr unsigned long BENCHMARK_SETTLE_MS = 3000;
+  static constexpr unsigned long BENCHMARK_RENDER_TIMEOUT_MS = 30000;
+  BenchmarkPageTurnState benchmarkPageTurnState = BenchmarkPageTurnState::IDLE;
+  uint8_t benchmarkPageTurnsCompleted = 0;
+  uint32_t benchmarkExpectedCompletion = 0;
+  unsigned long benchmarkSettleStartedAt = 0;
+  unsigned long benchmarkRenderStartedAt = 0;
+  int benchmarkOriginSpine = 0;
+  int benchmarkOriginPage = 0;
+  bool benchmarkOwnsPendingTurn = false;
+#endif
+
   // Last position persisted by render()'s saveProgress, used to skip redundant
   // writeAtomic calls on no-op re-renders (menu/bookmark/screenshot).
   int lastSavedSpineIndex = -1;
@@ -201,6 +216,10 @@ class EpubReaderActivity final : public Activity {
   void applyOrientation(uint8_t orientation);
   void toggleAutoPageTurn(uint8_t selectedPageTurnOption);
   void pageTurn(bool isForwardTurn);
+#ifdef ENABLE_PERF_BENCHMARK
+  bool handleAutomatedPageTurns();
+  void abortAutomatedPageTurns(const char* reason);
+#endif
   void loadCachedBookmarks();
   void addBookmark();
   void updateBookmarkFlag();
@@ -226,6 +245,10 @@ class EpubReaderActivity final : public Activity {
   // and while the build is heap-paused (no work is happening, so spinning at full
   // speed would only burn battery; the paused gate still retries every loop pass).
   bool skipLoopDelay() override { return section && section->isBuilding() && !buildHeapPaused; }
+#ifdef ENABLE_PERF_BENCHMARK
+  bool preventAutoSleep() override { return benchmarkPageTurnState != BenchmarkPageTurnState::IDLE; }
+  bool queueAutomatedPageTurns() override;
+#endif
   bool isReaderActivity() const override { return true; }
   bool handleForcedRefresh() override {
     {

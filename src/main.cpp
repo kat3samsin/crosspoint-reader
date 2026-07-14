@@ -490,6 +490,13 @@ void loop() {
         logSerial.write(buf, bufferSize);
         logSerial.printf("SCREENSHOT_END\n");
       }
+#ifdef ENABLE_PERF_BENCHMARK
+      if (cmd == "PERF_PAGE_TURNS_20") {
+        if (!activityManager.queueAutomatedPageTurns()) {
+          logSerial.println("PERF_CONTROL page_turn_auto error=ineligible_activity");
+        }
+      }
+#endif
     }
   }
 

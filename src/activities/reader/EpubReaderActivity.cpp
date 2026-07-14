@@ -349,6 +349,149 @@ void EpubReaderActivity::openDictionaryWordSelect() {
                          [this](const ActivityResult&) { requestUpdate(); });
 }
 
+#ifdef ENABLE_PERF_BENCHMARK
+void EpubReaderActivity::abortAutomatedPageTurns(const char* reason) {
+  if (benchmarkOwnsPendingTurn) {
+    PerformanceBenchmark::cancelPendingPageTurn();
+    benchmarkOwnsPendingTurn = false;
+  }
+  benchmarkPageTurnState = BenchmarkPageTurnState::IDLE;
+  logSerial.printf("PERF_CONTROL page_turn_auto error=%s\n", reason);
+}
+
+bool EpubReaderActivity::queueAutomatedPageTurns() {
+  if (benchmarkPageTurnState != BenchmarkPageTurnState::IDLE) {
+    logSerial.println("PERF_CONTROL page_turn_auto error=busy");
+    return true;
+  }
+  benchmarkPageTurnState = BenchmarkPageTurnState::ARMING;
+  benchmarkPageTurnsCompleted = 0;
+  benchmarkOwnsPendingTurn = false;
+  logSerial.println("PERF_CONTROL page_turn_auto queued");
+  return true;
+}
+
+bool EpubReaderActivity::handleAutomatedPageTurns() {
+  if (benchmarkPageTurnState == BenchmarkPageTurnState::IDLE) return false;
+
+  if (gpio.wasAnyPressed() || gpio.wasAnyReleased()) {
+    abortAutomatedPageTurns("physical_input");
+    return true;
+  }
+
+  if (benchmarkPageTurnState == BenchmarkPageTurnState::ARMING) {
+    if (RenderLock::peek()) return true;
+    RenderLock lock;
+    if (!section || section->isBuilding() || section->isPartial()) {
+      abortAutomatedPageTurns("section_not_finalized");
+      return true;
+    }
+    if (automaticPageTurnActive) {
+      abortAutomatedPageTurns("automatic_turn_enabled");
+      return true;
+    }
+    if (footnoteDepth != 0 || section->currentPage < 0 ||
+        section->currentPage + 1 >= static_cast<int>(section->pageCount)) {
+      abortAutomatedPageTurns("adjacent_page_unavailable");
+      return true;
+    }
+    if (showBookmarkMessage || pendingScreenshot || pendingSyncSaveError) {
+      abortAutomatedPageTurns("transient_ui");
+      return true;
+    }
+    if (PerformanceBenchmark::hasPendingPageTurn()) {
+      abortAutomatedPageTurns("page_turn_pending");
+      return true;
+    }
+
+    benchmarkOriginSpine = currentSpineIndex;
+    benchmarkOriginPage = section->currentPage;
+    benchmarkSettleStartedAt = millis();
+    benchmarkPageTurnState = BenchmarkPageTurnState::SETTLING;
+    return true;
+  }
+
+  if (benchmarkPageTurnState == BenchmarkPageTurnState::AWAITING_RENDER) {
+    const uint32_t completed = PerformanceBenchmark::completedPageTurns();
+    if (completed < benchmarkExpectedCompletion || RenderLock::peek()) {
+      if (millis() - benchmarkRenderStartedAt >= BENCHMARK_RENDER_TIMEOUT_MS) {
+        abortAutomatedPageTurns("render_timeout");
+      }
+      return true;
+    }
+
+    RenderLock lock;
+    const uint32_t stableCompleted = PerformanceBenchmark::completedPageTurns();
+    if (stableCompleted != benchmarkExpectedCompletion || !section || currentSpineIndex != benchmarkOriginSpine) {
+      abortAutomatedPageTurns("unexpected_render");
+      return true;
+    }
+    benchmarkOwnsPendingTurn = false;
+
+    const int expectedPage = benchmarkOriginPage + ((benchmarkPageTurnsCompleted + 1) % 2);
+    if (section->currentPage != expectedPage) {
+      abortAutomatedPageTurns("unexpected_page");
+      return true;
+    }
+
+    benchmarkPageTurnsCompleted++;
+    if (benchmarkPageTurnsCompleted == BENCHMARK_PAGE_TURN_COUNT) {
+      benchmarkPageTurnState = BenchmarkPageTurnState::IDLE;
+      logSerial.printf("PERF_CONTROL page_turn_auto done count=%u spine=%d page=%d\n",
+                       static_cast<unsigned>(benchmarkPageTurnsCompleted), currentSpineIndex, section->currentPage);
+      return true;
+    }
+
+    benchmarkSettleStartedAt = millis();
+    benchmarkPageTurnState = BenchmarkPageTurnState::SETTLING;
+    return true;
+  }
+
+  if (RenderLock::peek()) {
+    benchmarkSettleStartedAt = millis();
+    return true;
+  }
+  if (PerformanceBenchmark::hasPendingPageTurn()) {
+    abortAutomatedPageTurns("page_turn_pending");
+    return true;
+  }
+  if (!section || section->isBuilding() || section->isPartial() || currentSpineIndex != benchmarkOriginSpine ||
+      section->currentPage != benchmarkOriginPage + (benchmarkPageTurnsCompleted % 2)) {
+    abortAutomatedPageTurns("position_changed");
+    return true;
+  }
+  if (millis() - benchmarkSettleStartedAt < BENCHMARK_SETTLE_MS) return true;
+
+  RenderLock lock;
+  if (!section || section->isBuilding() || section->isPartial() || currentSpineIndex != benchmarkOriginSpine ||
+      section->currentPage != benchmarkOriginPage + (benchmarkPageTurnsCompleted % 2)) {
+    abortAutomatedPageTurns("position_changed");
+    return true;
+  }
+  if (PerformanceBenchmark::hasPendingPageTurn()) {
+    abortAutomatedPageTurns("page_turn_pending");
+    return true;
+  }
+
+  if (benchmarkPageTurnsCompleted == 0) {
+    logSerial.printf("PERF_CONTROL page_turn_auto started count=%u settle_ms=%lu spine=%d page_a=%d page_b=%d\n",
+                     static_cast<unsigned>(BENCHMARK_PAGE_TURN_COUNT), static_cast<unsigned long>(BENCHMARK_SETTLE_MS),
+                     benchmarkOriginSpine, benchmarkOriginPage, benchmarkOriginPage + 1);
+  }
+  if (benchmarkPageTurnsCompleted == 0) pagesUntilFullRefresh = 1;
+  benchmarkExpectedCompletion = PerformanceBenchmark::completedPageTurns() + 1;
+  pageTurn(benchmarkPageTurnsCompleted % 2 == 0);
+  if (!PerformanceBenchmark::hasPendingPageTurn()) {
+    abortAutomatedPageTurns("turn_not_queued");
+    return true;
+  }
+  benchmarkOwnsPendingTurn = true;
+  benchmarkRenderStartedAt = millis();
+  benchmarkPageTurnState = BenchmarkPageTurnState::AWAITING_RENDER;
+  return true;
+}
+#endif
+
 void EpubReaderActivity::loop() {
   if (!epub) {
     // Should never happen
@@ -475,6 +618,10 @@ void EpubReaderActivity::loop() {
   } else {
     pendingReadFolderMove = false;
   }
+
+#ifdef ENABLE_PERF_BENCHMARK
+  if (handleAutomatedPageTurns()) return;
+#endif
 
   const auto touch = ReaderUtils::detectTouchPageTurn(renderer, mappedInput);
 
