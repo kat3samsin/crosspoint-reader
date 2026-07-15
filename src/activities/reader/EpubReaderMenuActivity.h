@@ -20,7 +20,6 @@ class EpubReaderMenuActivity final : public Activity {
     GO_TO_PERCENT,
     AUTO_PAGE_TURN,
     ROTATE_SCREEN,
-    FONT_SIZE,
     BOOKMARKS,
     TOGGLE_BOOKMARK,
     SCREENSHOT,
@@ -33,8 +32,7 @@ class EpubReaderMenuActivity final : public Activity {
 
   explicit EpubReaderMenuActivity(GfxRenderer& renderer, MappedInputManager& mappedInput, const std::string& title,
                                   const int currentPage, const int totalPages, const int bookProgressPercent,
-                                  const uint8_t currentOrientation, const uint8_t currentFontSize,
-                                  const bool hasFootnotes, bool hasBookmarks);
+                                  const uint8_t currentOrientation, const bool hasFootnotes, bool hasBookmarks);
 
   void onEnter() override;
   void onExit() override;
@@ -63,12 +61,9 @@ class EpubReaderMenuActivity final : public Activity {
   bool popupClosing = false;
   std::string title = "Reader Menu";
   uint8_t pendingOrientation = 0;
-  uint8_t pendingFontSize = 0;
   uint8_t selectedPageTurnOption = 0;
   const std::array<StrId, 4> orientationLabels = {StrId::STR_PORTRAIT, StrId::STR_LANDSCAPE_CW, StrId::STR_INVERTED,
                                                   StrId::STR_LANDSCAPE_CCW};
-  const std::array<StrId, 4> fontSizeLabels = {StrId::STR_SMALL, StrId::STR_MEDIUM, StrId::STR_LARGE,
-                                               StrId::STR_X_LARGE};
   const std::vector<const char*> pageTurnLabels = {I18N.get(StrId::STR_STATE_OFF), "1", "3", "6", "12"};
   int currentPage = 0;
   int totalPages = 0;

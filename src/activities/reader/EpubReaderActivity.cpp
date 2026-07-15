@@ -286,15 +286,11 @@ void EpubReaderActivity::openReaderMenu() {
   const int bookProgressPercent = clampPercent(static_cast<int>(bookProgress + 0.5f));
   startActivityForResult(std::make_unique<EpubReaderMenuActivity>(renderer, mappedInput, epub->getTitle(), currentPage,
                                                                   totalPages, bookProgressPercent, SETTINGS.orientation,
-                                                                  SETTINGS.fontSize, !currentPageFootnotes.empty(),
-                                                                  !cachedBookmarks.empty()),
+                                                                  !currentPageFootnotes.empty(), !cachedBookmarks.empty()),
                          [this](const ActivityResult& result) {
                            // Match the existing menu behavior: confirmed option-popup changes
                            // apply even if Back subsequently closes the reader menu.
                            const auto& menu = std::get<MenuResult>(result.data);
-                           // Apply font first so it captures the current section position when
-                           // font size and orientation are changed in the same menu visit.
-                           applyFontSize(menu.fontSize);
                            applyOrientation(menu.orientation);
                            toggleAutoPageTurn(menu.pageTurnOption);
                            if (!result.isCancelled) {
@@ -1186,24 +1182,6 @@ bool EpubReaderActivity::launchKOReaderSync() {
       renderer, mappedInput, savedEpubPath, currentSpineIndex, currentPage, totalPages, std::move(localKoPos),
       std::move(localChapterName), paragraphIndex));
   return true;  // acted: launched the sync activity
-}
-
-void EpubReaderActivity::applyFontSize(const uint8_t fontSize) {
-  if (fontSize >= CrossPointSettings::FONT_SIZE_COUNT || SETTINGS.fontSize == fontSize) {
-    return;
-  }
-
-  RenderLock lock(*this);
-  if (section) {
-    cachedSpineIndex = currentSpineIndex;
-    cachedChapterTotalPageCount = section->estimatedTotalPages();
-    nextPageNumber = section->currentPage;
-  }
-
-  SETTINGS.fontSize = fontSize;
-  SETTINGS.saveToFile();
-  sdFontSystem.ensureLoaded(renderer);
-  section.reset();
 }
 
 void EpubReaderActivity::applyOrientation(const uint8_t orientation) {
