@@ -23,12 +23,14 @@ class WebDAVHandler : public RequestHandler {
   bool _putExisted = false;
   bool _putValidated = false;
   size_t _putBytes = 0;
+  size_t _putBufferSize = 0;
 
   // The handler is heap-owned for the lifetime of the foreground web server.
-  // Keeping one modest transfer buffer here avoids a large request-stack frame
-  // and repeated heap allocation while still batching SD and Wi-Fi I/O.
-  static constexpr size_t DOWNLOAD_BUFFER_SIZE = 2048;
-  std::array<uint8_t, DOWNLOAD_BUFFER_SIZE> _downloadBuffer{};
+  // WebDAV requests are handled serially, so GET and PUT can share one modest
+  // buffer. This avoids a large request-stack frame and batches small network
+  // chunks into fewer SD writes without allocating per request.
+  static constexpr size_t TRANSFER_BUFFER_SIZE = 4096;
+  std::array<uint8_t, TRANSFER_BUFFER_SIZE> _transferBuffer{};
 
   // WebDAV method handlers
   void handleOptions(WebServer& s);
@@ -50,6 +52,7 @@ class WebDAVHandler : public RequestHandler {
   bool isProtectedPath(const String& path, WebDAVOperation operation) const;
   int getDepth(WebServer& s) const;
   bool getOverwrite(WebServer& s) const;
+  bool flushPutBuffer();
   void sendPropEntry(WebServer& s, const String& href, bool isDir, size_t size, const String& lastModified) const;
   String getMimeType(const String& path) const;
   bool validateProgressSidecarFile(const String& targetPath, const String& candidatePath);
