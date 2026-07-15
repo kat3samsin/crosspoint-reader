@@ -44,3 +44,13 @@ TEST(HighlightRange, TreatsAMissingFileAsNoHighlights) {
   EXPECT_TRUE(Highlights::parseRanges("", ranges));
   EXPECT_TRUE(ranges.empty());
 }
+
+TEST(HighlightRange, RoundTripsAnEmptySavedRangeSet) {
+  std::string data;
+  ASSERT_TRUE(Highlights::serializeRanges({}, data));
+  EXPECT_EQ(data, "crosspoint-highlights-v1\n");
+
+  std::vector<Highlights::Range> ranges = {{1, 2, 3}};
+  ASSERT_TRUE(Highlights::parseRanges(data, ranges));
+  EXPECT_TRUE(ranges.empty());
+}

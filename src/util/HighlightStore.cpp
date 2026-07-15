@@ -208,4 +208,21 @@ bool save(const std::string& bookPath, const std::string& bookTitle, const std::
   return true;
 }
 
+bool remove(const std::string& bookPath, const Highlights::Range& range) {
+  if (!Highlights::isValid(range)) return false;
+
+  std::vector<Highlights::Range> ranges;
+  if (!loadRanges(bookPath, ranges)) return false;
+  const auto sameRange = [&](const Highlights::Range& existing) {
+    return existing.spineIndex == range.spineIndex && existing.startWord == range.startWord &&
+           existing.endWord == range.endWord;
+  };
+  const auto match = std::find_if(ranges.begin(), ranges.end(), sameRange);
+  if (match == ranges.end()) return true;
+
+  ranges.erase(match);
+  std::string data;
+  return Highlights::serializeRanges(ranges, data) && writeRangesAtomic(rangePath(bookPath), data);
+}
+
 }  // namespace HighlightStore

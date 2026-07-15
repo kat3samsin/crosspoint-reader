@@ -59,6 +59,7 @@ void DictionaryWordSelectActivity::onEnter() {
   extractWords();
   buildReadingOrder();
   resetCursorToMiddle();
+  if (mode != Mode::Dictionary && !HighlightStore::loadRanges(bookPath, savedRanges)) savedRanges.clear();
   requestUpdate();
 }
 
@@ -289,11 +290,17 @@ void DictionaryWordSelectActivity::handleConfirmRelease() {
       performLookup();
       break;
     case Mode::Highlight:
-      toggleHighlight();
+      if (anchor < 0 && selectedSavedRange() >= 0) {
+        deleteSelectedHighlight();
+      } else {
+        toggleHighlight();
+      }
       break;
     case Mode::DictionaryHighlight:
       if (mappedInput.getHeldTime() >= DICT_LOOKUP_HOLD_MS) {
         performLookup();
+      } else if (anchor < 0 && selectedSavedRange() >= 0) {
+        deleteSelectedHighlight();
       } else {
         toggleHighlight();
       }
@@ -420,9 +427,9 @@ void DictionaryWordSelectActivity::toggleHighlight() {
       drawnLo = drawnHi = readingPos[selected];
     } else {
       drawnLo = drawnHi = -1;
-      requestUpdate();
     }
     snapshotIdx = -1;  // the single-word snapshot is not maintained while selecting
+    requestUpdate();
     return;
   }
   const bool ok = saveHighlight();
@@ -462,11 +469,47 @@ bool DictionaryWordSelectActivity::saveHighlight() {
   return HighlightStore::save(bookPath, bookTitle, chapterTitle, passage, range);
 }
 
+int DictionaryWordSelectActivity::selectedSavedRange() const {
+  if (words.empty() || words[selected].sourceOrdinal == Highlights::NO_WORD_ORDINAL) return -1;
+  const auto match = std::find_if(savedRanges.begin(), savedRanges.end(), [&](const Highlights::Range& range) {
+    return Highlights::contains(range, spineIndex, words[selected].sourceOrdinal);
+  });
+  return match == savedRanges.end() ? -1 : static_cast<int>(match - savedRanges.begin());
+}
+
+void DictionaryWordSelectActivity::deleteSelectedHighlight() {
+  const int index = selectedSavedRange();
+  if (index < 0) return;
+
+  const bool ok = HighlightStore::remove(bookPath, savedRanges[index]);
+  if (ok) savedRanges.erase(savedRanges.begin() + index);
+  popup = ok ? Popup::Deleted : Popup::Error;
+  popupMsg = ok ? StrId::STR_HIGHLIGHT_DELETED : StrId::STR_HIGHLIGHT_DELETE_FAILED;
+  popupTime = millis();
+  requestUpdate();
+}
+
+void DictionaryWordSelectActivity::drawHighlightControls() {
+  if (mode == Mode::Dictionary || words.empty()) {
+    drawHints();
+    return;
+  }
+  const char* back = anchor >= 0 ? tr(STR_CANCEL) : tr(STR_BACK);
+  const char* confirm = tr(STR_HIGHLIGHT_START);
+  if (anchor >= 0) {
+    confirm = tr(STR_HIGHLIGHT_SAVE);
+  } else if (selectedSavedRange() >= 0) {
+    confirm = tr(STR_DELETE);
+  }
+  const auto labels = mappedInput.mapLabels(back, confirm, tr(STR_DIR_LEFT), tr(STR_DIR_RIGHT));
+  GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4);
+}
+
 void DictionaryWordSelectActivity::loop() {
-  if (popup == Popup::NotFound || popup == Popup::Error || popup == Popup::Saved) {
+  if (popup == Popup::NotFound || popup == Popup::Error || popup == Popup::Saved || popup == Popup::Deleted) {
     if (millis() - popupTime >= POPUP_DURATION_MS) {
-      if (popup == Popup::Saved) {
-        // Saving completes the task: return straight to the reader.
+      if (popup == Popup::Saved || popup == Popup::Deleted) {
+        // Saving or deleting completes the task: return straight to the reader.
         finish();
         return;
       }
@@ -644,6 +687,7 @@ void DictionaryWordSelectActivity::render(RenderLock&&) {
     }
     drawnLo = lo;
     drawnHi = hi;
+    drawHighlightControls();
     renderer.displayBuffer(HalDisplay::FAST_REFRESH);
     return;
   }
@@ -659,7 +703,7 @@ void DictionaryWordSelectActivity::render(RenderLock&&) {
     renderer.getFontCacheManager()->prewarmCache(
         fontId, words[selected].text, static_cast<uint8_t>(1u << (static_cast<uint8_t>(words[selected].style) & 0x03)));
     if (drawHighlightWithSnapshot()) {
-      drawHints();
+      drawHighlightControls();
       renderer.displayBuffer(HalDisplay::FAST_REFRESH);
       return;
     }
@@ -690,7 +734,7 @@ void DictionaryWordSelectActivity::render(RenderLock&&) {
     }
   }
 
-  drawHints();
+  drawHighlightControls();
 
   if (popup != Popup::None) {
     // The popup overdraws the page, so the snapshot no longer matches the

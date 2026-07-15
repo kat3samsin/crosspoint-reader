@@ -12,6 +12,7 @@ namespace HighlightStore {
 
 bool save(const std::string& bookPath, const std::string& bookTitle, const std::string& chapterTitle,
           const std::string& passage, const Highlights::Range& range);
+bool remove(const std::string& bookPath, const Highlights::Range& range);
 bool loadRanges(const std::string& bookPath, std::vector<Highlights::Range>& ranges);
 
 }  // namespace HighlightStore

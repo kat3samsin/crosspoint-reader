@@ -63,7 +63,7 @@ class DictionaryWordSelectActivity final : public Activity {
     EpdFontFamily::Style style;
   };
 
-  enum class Popup : uint8_t { None, Busy, NotFound, Error, Saved };
+  enum class Popup : uint8_t { None, Busy, NotFound, Error, Saved, Deleted };
 
   void extractWords();
   void buildReadingOrder();
@@ -74,6 +74,9 @@ class DictionaryWordSelectActivity final : public Activity {
   void handleConfirmRelease();
   void toggleHighlight();
   bool saveHighlight();
+  int selectedSavedRange() const;
+  void deleteSelectedHighlight();
+  void drawHighlightControls();
   bool drawHighlightWithSnapshot();
   void drawHints() const;
   void paintWordBox(int idx, bool highlighted, int rangeLo, int rangeHi);
@@ -115,6 +118,7 @@ class DictionaryWordSelectActivity final : public Activity {
   uint32_t anchoredSourceOrdinal = Highlights::NO_WORD_ORDINAL;
   int drawnLo = -1;
   int drawnHi = -1;
+  std::vector<Highlights::Range> savedRanges;
 
   // Cross-page selection (only when section != nullptr): the reader's section
   // outlives this activity, so the raw pointer stays valid. carriedText holds
