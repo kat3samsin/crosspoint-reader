@@ -2,6 +2,7 @@
 #include <EpdFontFamily.h>
 #include <HalStorage.h>
 
+#include <cstdint>
 #include <memory>
 #include <string>
 #include <vector>
@@ -12,14 +13,14 @@
 // Represents a line of text on a page.
 //
 // All per-word data lives in ONE flat heap allocation (the arena) instead of
-// six parallel vectors: a resident page holds ~25-30 of these blocks, and the
+// parallel vectors: a resident page holds ~25-30 of these blocks, and the
 // vector-of-string layout cost ~250 throwing allocations per page load, which
 // was the primary driver of heap fragmentation on the ESP32-C3.
 //
-// Arena layout, in order (2-byte alignment holds by construction: all 16-bit
-// arrays come first and the arena base is allocator-aligned; RISC-V faults on
-// unaligned multi-byte access):
-//   uint16_t textOff[wordCount]        byte offset of word i's text in text[]
+// Arena layout, in order (the arena base is allocator-aligned, and every
+// multi-byte array starts at a naturally aligned offset):
+//   uint32_t sourceOrdinal[wordCount]    stable word order within the spine
+//   uint16_t textOff[wordCount]          byte offset of word i's text in text[]
 //   int16_t  xpos[wordCount]
 //   uint16_t focusSuffixX[wordCount]   present only when focusPresent
 //   uint8_t  styles[wordCount]
@@ -48,6 +49,7 @@ class TextBlock final : public Block {
   std::unique_ptr<uint8_t[]> arena;
   // Typed views into the arena, bound once after the arena is filled. All
   // 16-bit bases sit at even offsets, so direct dereference is alignment-safe.
+  const uint32_t* sourceOrdinalArr = nullptr;
   const uint16_t* textOffArr = nullptr;
   const int16_t* xposArr = nullptr;
   const uint16_t* focusSuffixXArr = nullptr;  // null when !focusPresent
@@ -61,11 +63,14 @@ class TextBlock final : public Block {
   void bindArenaPointers();
 
  public:
+  static constexpr uint32_t NO_SOURCE_ORDINAL = UINT32_MAX;
+
   // Flatten-on-construct: copies the layout-time vectors into the arena; the
   // vectors die with the caller. On arena OOM the block is empty and valid()
   // is false -- callers must check and fail the line instead of using it.
   explicit TextBlock(const std::vector<std::string>& words, const std::vector<int16_t>& wordXpos,
-                     const std::vector<EpdFontFamily::Style>& wordStyles, const std::vector<uint8_t>& focusBoundary,
+                     const std::vector<EpdFontFamily::Style>& wordStyles,
+                     const std::vector<uint32_t>& wordSourceOrdinals, const std::vector<uint8_t>& focusBoundary,
                      const std::vector<uint16_t>& focusSuffixX, const BlockStyle& blockStyle = BlockStyle(),
                      std::vector<std::string> rubyTexts = {});
   ~TextBlock() override = default;
@@ -83,6 +88,7 @@ class TextBlock final : public Block {
     const uint16_t end = (i + 1 < numWords) ? textOffArr[i + 1] : textBytes;
     return end - textOffArr[i] - 1;  // exclude the NUL
   }
+  uint32_t wordSourceOrdinal(const uint16_t i) const { return sourceOrdinalArr[i]; }
   int16_t wordXpos(const uint16_t i) const { return xposArr[i]; }
   EpdFontFamily::Style wordStyle(const uint16_t i) const { return static_cast<EpdFontFamily::Style>(stylesArr[i]); }
   uint8_t focusBoundary(const uint16_t i) const { return focusPresent ? focusBoundaryArr[i] : 0; }

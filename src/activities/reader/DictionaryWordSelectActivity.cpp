@@ -102,6 +102,7 @@ void DictionaryWordSelectActivity::extractWords() {
       box.x = static_cast<int16_t>(line->xPos + block->wordXpos(i) + marginLeft);
       box.y = static_cast<int16_t>(line->yPos + marginTop + rubyShift);
       box.style = block->wordStyle(i);
+      box.sourceOrdinal = block->wordSourceOrdinal(i);
       box.width = 0;  // measured below, once the advance table is ready
       box.row = rowCount;
       box.text = text;
@@ -410,6 +411,7 @@ bool DictionaryWordSelectActivity::handleCrossPageNavigation() {
 void DictionaryWordSelectActivity::toggleHighlight() {
   if (anchor < 0) {
     anchor = selected;
+    anchoredSourceOrdinal = words[selected].sourceOrdinal;
     resetCarried();
     // The cursor word is already highlighted; when the framebuffer is clean
     // (snapshot tracks it) seed the painted range from it so extending the
@@ -426,6 +428,7 @@ void DictionaryWordSelectActivity::toggleHighlight() {
   const bool ok = saveHighlight();
   resetCarried();
   anchor = -1;
+  anchoredSourceOrdinal = Highlights::NO_WORD_ORDINAL;
   drawnLo = drawnHi = -1;
   popup = ok ? Popup::Saved : Popup::Error;
   popupMsg = ok ? StrId::STR_HIGHLIGHT_SAVED : StrId::STR_HIGHLIGHT_SAVE_FAILED;
@@ -437,6 +440,10 @@ void DictionaryWordSelectActivity::toggleHighlight() {
 // any text carried over from previous pages, and appends the passage to the
 // highlights markdown file.
 bool DictionaryWordSelectActivity::saveHighlight() {
+  if (anchoredSourceOrdinal == Highlights::NO_WORD_ORDINAL ||
+      words[selected].sourceOrdinal == Highlights::NO_WORD_ORDINAL) {
+    return false;
+  }
   const int lo = std::min(readingPos[anchor], readingPos[selected]);
   const int hi = std::max(readingPos[anchor], readingPos[selected]);
   size_t length = carriedText.size();
@@ -448,7 +455,11 @@ bool DictionaryWordSelectActivity::saveHighlight() {
     if (!passage.empty()) passage += ' ';
     passage += words[readingOrder[p]].text;
   }
-  return HighlightStore::save(bookTitle, chapterTitle, passage);
+  Highlights::Range range;
+  range.spineIndex = spineIndex;
+  range.startWord = std::min(anchoredSourceOrdinal, words[selected].sourceOrdinal);
+  range.endWord = std::max(anchoredSourceOrdinal, words[selected].sourceOrdinal);
+  return HighlightStore::save(bookPath, bookTitle, chapterTitle, passage, range);
 }
 
 void DictionaryWordSelectActivity::loop() {
@@ -472,6 +483,7 @@ void DictionaryWordSelectActivity::loop() {
       // Cancel the in-progress selection; a full repaint clears its boxes.
       // A cross-page selection also returns to the page it started from.
       anchor = -1;
+      anchoredSourceOrdinal = Highlights::NO_WORD_ORDINAL;
       drawnLo = drawnHi = -1;
       resetCarried();
       if (sectionPageIndex != originalPageIndex && showPage(originalPageIndex)) {

@@ -31,7 +31,8 @@ namespace {
 //      match. Keeps <br>-per-paragraph books (common CJK formatting) from
 //      re-adding container spacing at every paragraph.
 // v35: Persist a uint32_t visible-text start offset for every page.
-constexpr uint8_t SECTION_FILE_VERSION = 36;
+// v37: TextBlock carries stable source-word ordinals for persistent highlights.
+constexpr uint8_t SECTION_FILE_VERSION = 37;
 // Written into the version field while a build is in progress; patched to
 // SECTION_FILE_VERSION only when the build is finalized. An abandoned /
 // crash-interrupted .bin therefore carries version 0, which loadSectionFile rejects

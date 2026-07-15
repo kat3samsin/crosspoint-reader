@@ -2,6 +2,7 @@
 #include <Epub.h>
 #include <Epub/FootnoteEntry.h>
 #include <Epub/Section.h>
+#include <HighlightRange.h>
 
 #include <optional>
 
@@ -66,6 +67,8 @@ class EpubReaderActivity final : public Activity {
   unsigned long lastRenderCompleteMs = 0;
   bool bookmarkRemoved = false;  // true when last toggle removed (controls popup text)
   std::vector<BookmarkEntry> cachedBookmarks;
+  std::vector<Highlights::Range> cachedHighlights;
+  bool highlightsLoaded = false;
   // Tracks whether this book is currently removed from Recent Books by the
   // removeReadBooksFromRecents feature (set at End-of-Book, cleared if paged back in).
   bool recentsEntryRemoved = false;
@@ -224,6 +227,10 @@ class EpubReaderActivity final : public Activity {
   void abortAutomatedPageTurns(const char* reason);
 #endif
   void loadCachedBookmarks();
+  void loadCachedHighlights();
+  bool isWordHighlighted(uint32_t sourceOrdinal) const;
+  bool pageHasHighlights(const Page& page) const;
+  void renderHighlightBackgrounds(const Page& page, int fontId, int marginLeft, int marginTop) const;
   void addBookmark();
   void updateBookmarkFlag();
 

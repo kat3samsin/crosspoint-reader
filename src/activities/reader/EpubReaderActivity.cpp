@@ -41,6 +41,7 @@
 #include "components/UITheme.h"
 #include "fontIds.h"
 #include "util/BookmarkUtil.h"
+#include "util/HighlightStore.h"
 #include "util/ScreenshotUtil.h"
 
 namespace {
@@ -496,8 +497,12 @@ void EpubReaderActivity::openWordSelect(const DictionaryWordSelectActivity::Mode
   // and enables highlight selections that continue onto the following pages.
   startActivityForResult(std::make_unique<DictionaryWordSelectActivity>(
                              renderer, mappedInput, std::move(page), orientedMarginLeft, orientedMarginTop, mode,
-                              epub->getTitle(), std::move(chapterTitle), section.get(), section->currentPage),
-                          [this](const ActivityResult&) { requestUpdate(); });
+                             epub->getPath(), epub->getTitle(), std::move(chapterTitle),
+                             static_cast<uint16_t>(currentSpineIndex), section.get(), section->currentPage),
+                         [this](const ActivityResult&) {
+                           highlightsLoaded = false;
+                           requestUpdate();
+                         });
 }
 
 void EpubReaderActivity::loop() {
@@ -1954,6 +1959,8 @@ void EpubReaderActivity::renderContents(std::unique_ptr<Page> page, const int or
                                         const int orientedMarginLeft) {
   const auto t0 = millis();
   const int fontId = SETTINGS.getReaderFontId();
+  if (!highlightsLoaded) loadCachedHighlights();
+  const bool hasPersistentHighlights = pageHasHighlights(*page);
 
   // The image pixel-cache RAM slot lives for exactly one page render (it feeds
   // the BW double-refresh and every grayscale band pass); release it on every
@@ -1979,7 +1986,9 @@ void EpubReaderActivity::renderContents(std::unique_ptr<Page> page, const int or
   // retained frame after a silent restart (for example, when returning from
   // KOReader sync), leaving the old UI mixed with the image.
   const bool cleanImageBasePending = manualRefreshPending || pagesUntilFullRefresh <= 1;
-  const bool needsTextGrayscale = SETTINGS.textAntiAliasing;
+  // Highlight backgrounds are a 1-bit dither. Skip the text grayscale planes
+  // on affected pages so anti-alias pixels cannot overwrite the marked glyphs.
+  const bool needsTextGrayscale = SETTINGS.textAntiAliasing && !hasPersistentHighlights;
   const bool needsAnyGrayscale = needsTextGrayscale || pageHasImages;
   const bool tiledGrayscale = needsAnyGrayscale && renderer.supportsStripGrayscale();
   // Whole-plane buffering only pays when the BW refresh genuinely runs async
@@ -1997,12 +2006,18 @@ void EpubReaderActivity::renderContents(std::unique_ptr<Page> page, const int or
   };
 
   if (pageHasImagesNeedingDecode) {
+    if (hasPersistentHighlights) {
+      renderHighlightBackgrounds(*page, fontId, orientedMarginLeft, orientedMarginTop);
+    }
     page->renderWithImagePlaceholders(renderer, fontId, orientedMarginLeft, orientedMarginTop);
     renderStatusBar();
     renderer.displayBuffer(HalDisplay::FAST_REFRESH);
     renderer.clearScreen();
   }
 
+  if (hasPersistentHighlights) {
+    renderHighlightBackgrounds(*page, fontId, orientedMarginLeft, orientedMarginTop);
+  }
   page->render(renderer, fontId, orientedMarginLeft, orientedMarginTop);
   renderStatusBar();
   const auto tBwRender = millis();
@@ -2028,6 +2043,9 @@ void EpubReaderActivity::renderContents(std::unique_ptr<Page> page, const int or
 
       // Re-render page content to restore images into the blanked area
       // Status bar is not re-rendered here to avoid reading stale dynamic values (e.g. battery %)
+      if (hasPersistentHighlights) {
+        renderHighlightBackgrounds(*page, fontId, orientedMarginLeft, orientedMarginTop);
+      }
       page->render(renderer, fontId, orientedMarginLeft, orientedMarginTop);
       renderer.displayBuffer(HalDisplay::FAST_REFRESH);
     } else {
@@ -2355,6 +2373,68 @@ void EpubReaderActivity::loadCachedBookmarks() {
 
   BookmarkFile::load(epub->getPath(), cachedBookmarks);
   updateBookmarkFlag();
+}
+
+void EpubReaderActivity::loadCachedHighlights() {
+  cachedHighlights.clear();
+  highlightsLoaded = true;
+  if (!epub || !HighlightStore::loadRanges(epub->getPath(), cachedHighlights)) {
+    cachedHighlights.clear();
+    LOG_ERR("HILITE", "Failed to load persistent highlights");
+  }
+}
+
+bool EpubReaderActivity::isWordHighlighted(const uint32_t sourceOrdinal) const {
+  if (sourceOrdinal == Highlights::NO_WORD_ORDINAL) return false;
+  return std::any_of(cachedHighlights.begin(), cachedHighlights.end(), [&](const Highlights::Range& range) {
+    return Highlights::contains(range, static_cast<uint16_t>(currentSpineIndex), sourceOrdinal);
+  });
+}
+
+bool EpubReaderActivity::pageHasHighlights(const Page& page) const {
+  for (const auto& element : page.elements) {
+    if (element->getTag() != TAG_PageLine) continue;
+    const auto& block = static_cast<const PageLine&>(*element).getBlock();
+    if (!block || !block->valid()) continue;
+    for (uint16_t i = 0; i < block->wordCount(); i++) {
+      if (isWordHighlighted(block->wordSourceOrdinal(i))) return true;
+    }
+  }
+  return false;
+}
+
+void EpubReaderActivity::renderHighlightBackgrounds(const Page& page, const int fontId, const int marginLeft,
+                                                    const int marginTop) const {
+  const int lineHeight = renderer.getLineHeight(fontId);
+  const int screenWidth = renderer.getScreenWidth();
+  const int screenHeight = renderer.getScreenHeight();
+
+  for (const auto& element : page.elements) {
+    if (element->getTag() != TAG_PageLine) continue;
+    const auto& line = static_cast<const PageLine&>(*element);
+    const auto& block = line.getBlock();
+    if (!block || !block->valid()) continue;
+
+    for (uint16_t i = 0; i < block->wordCount(); i++) {
+      if (!isWordHighlighted(block->wordSourceOrdinal(i))) continue;
+
+      int x0 = line.xPos + block->wordXpos(i) + marginLeft - 2;
+      int x1 = x0 + renderer.getTextAdvanceX(fontId, block->wordText(i), block->wordStyle(i)) + 4;
+      if (i + 1 < block->wordCount() && isWordHighlighted(block->wordSourceOrdinal(i + 1))) {
+        x1 = line.xPos + block->wordXpos(i + 1) + marginLeft;
+      }
+      int y0 = line.yPos + marginTop - 2;
+      int y1 = y0 + lineHeight + 4;
+      x0 = std::max(0, x0);
+      y0 = std::max(0, y0);
+      x1 = std::min(screenWidth, x1);
+      y1 = std::min(screenHeight, y1);
+
+      // A 25% checker pattern gives the selected text a light-gray marker
+      // background on a 1-bit panel. Text is rendered over it afterward.
+      renderer.fillRectDither(x0, y0, x1 - x0, y1 - y0, Color::LightGray);
+    }
+  }
 }
 
 void EpubReaderActivity::addBookmark() {

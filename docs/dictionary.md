@@ -37,6 +37,17 @@ One word on the page becomes highlighted:
 
 On the very first lookup with a dictionary (and again if the dictionary file changes), the reader shows *"Indexing dictionary…"* while it builds a small `.qidx` sidecar file next to the `.idx`. This takes a few seconds for large dictionaries and makes all subsequent lookups fast. The sidecar can be deleted safely at any time — it will simply be rebuilt.
 
+## Saving a Highlight
+
+Set **Settings → Controls → Long-press Menu** to **Highlight** or **Dictionary + Highlight**, then hold **Confirm** on an EPUB page.
+
+1. Use **Left/Right** to move by word and the side **Up/Down** buttons to move by line.
+2. Press **Confirm** once to anchor the start of the passage.
+3. Move to the end of the passage, including onto a following page in the same chapter, and press **Confirm** again to save it.
+4. Press **Back** while selecting to cancel and return to the original page.
+
+Saved passages remain visibly marked in the book after reopening it or changing the font and layout. A readable copy is also appended to `/Highlights/<book>.md` or `/Highlights.md`, according to **Settings → Reader → Highlights File**. In **Dictionary + Highlight** mode, a short Confirm press anchors or saves a highlight; holding Confirm for about 0.4 seconds looks up the selected word.
+
 ### How Lookup Works
 
 1. **Direct match** — the word is found as-is (case-insensitive) in the dictionary index. Surrounding punctuation is ignored.

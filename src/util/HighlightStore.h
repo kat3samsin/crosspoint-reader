@@ -1,14 +1,17 @@
 #pragma once
 
-#include <string>
+#include <HighlightRange.h>
 
-// Appends reader highlights to markdown on the SD card. Depending on
-// SETTINGS.highlightFileMode the passage goes to /Highlights/<book>.md
-// (per-book) or /Highlights.md (single file). Passages are grouped under
-// "# book" (single-file mode) and "## chapter" headings; a heading is only
-// re-written when it differs from the last one already in the file.
+#include <string>
+#include <vector>
+
+// Persists source-word ranges for in-book rendering and appends a readable
+// clipping to markdown. Depending on SETTINGS.highlightFileMode, the passage
+// goes to /Highlights/<book>.md or /Highlights.md.
 namespace HighlightStore {
 
-bool save(const std::string& bookTitle, const std::string& chapterTitle, const std::string& passage);
+bool save(const std::string& bookPath, const std::string& bookTitle, const std::string& chapterTitle,
+          const std::string& passage, const Highlights::Range& range);
+bool loadRanges(const std::string& bookPath, std::vector<Highlights::Range>& ranges);
 
 }  // namespace HighlightStore

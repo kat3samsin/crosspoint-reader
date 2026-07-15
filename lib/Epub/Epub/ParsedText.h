@@ -25,6 +25,7 @@ class ParsedText {
   // each, they never approach the contiguous-block ceiling.
   std::deque<std::string> words;
   std::vector<EpdFontFamily::Style> wordStyles;
+  std::vector<uint32_t> wordSourceOrdinals;
   std::vector<bool> wordContinues;      // true = word attaches to previous with no break
   std::vector<bool> wordNoSpaceBefore;  // true = may break before token, but no synthetic space when joined
   std::vector<bool> wordIsFocusSuffix;  // true = token is the regular tail of a focus bold-prefix split
@@ -48,6 +49,7 @@ class ParsedText {
   bool hasRtlWord;
   std::vector<std::string> reorderedWordsScratch;
   std::vector<EpdFontFamily::Style> reorderedStylesScratch;
+  std::vector<uint32_t> reorderedSourceOrdinalsScratch;
   std::vector<uint16_t> reorderedWidthsScratch;
   std::vector<bool> reorderedContinuesScratch;
   std::vector<bool> reorderedNoSpaceBeforeScratch;
@@ -89,8 +91,9 @@ class ParsedText {
         hasRtlWord(false) {}
   ~ParsedText() = default;
 
-  void addWord(std::string word, EpdFontFamily::Style fontStyle, bool underline = false, bool attachToPrevious = false,
-               uint32_t visibleTextOffset = 0);
+  uint32_t addWord(std::string word, EpdFontFamily::Style fontStyle, bool underline = false,
+                   bool attachToPrevious = false, uint32_t visibleTextOffset = 0,
+                   uint32_t firstSourceOrdinal = TextBlock::NO_SOURCE_ORDINAL);
   void setRubyForWordAt(size_t index, const std::string& ruby);
   void setRubyGroupAt(size_t startIndex, size_t count, const std::string& ruby);
   EpdFontFamily::Style getWordStyleAt(size_t index) const {

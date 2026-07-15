@@ -273,7 +273,18 @@ void ChapterHtmlSlimParser::flushPartWordBuffer() {
 
   // flush the buffer
   partWordBuffer[partWordBufferIndex] = '\0';
-  currentTextBlock->addWord(partWordBuffer, fontStyle, false, nextWordContinues, partWordVisibleOffset);
+  // Inline style fragments share one source ordinal. A no-break space also
+  // uses the layout continuation flag, but starts the source token that owns
+  // the following word, so selecting that word does not re-highlight the one
+  // before the space.
+  const bool isNoBreakSpaceToken = partWordBufferIndex == 1 && partWordBuffer[0] == ' ';
+  const bool continuesSourceWord = nextWordContinues && !isNoBreakSpaceToken && nextSourceWordOrdinal > 0;
+  const uint32_t firstSourceOrdinal = continuesSourceWord ? nextSourceWordOrdinal - 1 : nextSourceWordOrdinal;
+  const uint32_t sourceWordsUsed = currentTextBlock->addWord(partWordBuffer, fontStyle, false, nextWordContinues,
+                                                             partWordVisibleOffset, firstSourceOrdinal);
+  if (sourceWordsUsed > 0) {
+    nextSourceWordOrdinal += continuesSourceWord ? sourceWordsUsed - 1 : sourceWordsUsed;
+  }
   partWordBufferIndex = 0;
   nextWordContinues = false;
   listItemBulletOnly = false;

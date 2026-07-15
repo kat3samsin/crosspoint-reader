@@ -1,6 +1,7 @@
 #pragma once
 
 #include <Epub/Page.h>
+#include <HighlightRange.h>
 #include <I18n.h>
 
 #include <memory>
@@ -17,7 +18,7 @@ class Section;
 // reader. What Confirm does depends on the mode:
 //  - Dictionary: release looks the word up in DictionaryDefinitionActivity.
 //  - Highlight: release anchors a passage selection; the next release saves
-//    the anchored range as a markdown highlight (HighlightStore).
+//    the anchored range for persistent in-book rendering and markdown export.
 //  - DictionaryHighlight: long-press release looks up, short release
 //    anchors/saves a highlight. Back cancels an active selection first.
 // On touch devices, touch-down moves the selection and a tap activates it.
@@ -29,15 +30,18 @@ class DictionaryWordSelectActivity final : public Activity {
 
   explicit DictionaryWordSelectActivity(GfxRenderer& renderer, MappedInputManager& mappedInput,
                                         std::unique_ptr<Page> page, int marginLeft, int marginTop,
-                                        Mode mode = Mode::Dictionary, std::string bookTitle = {},
-                                        std::string chapterTitle = {}, Section* section = nullptr, int pageIndex = 0)
+                                        Mode mode = Mode::Dictionary, std::string bookPath = {},
+                                        std::string bookTitle = {}, std::string chapterTitle = {},
+                                        uint16_t spineIndex = 0, Section* section = nullptr, int pageIndex = 0)
       : Activity("DictionaryWordSelect", renderer, mappedInput),
         page(std::move(page)),
         marginLeft(marginLeft),
         marginTop(marginTop),
         mode(mode),
+        bookPath(std::move(bookPath)),
         bookTitle(std::move(bookTitle)),
         chapterTitle(std::move(chapterTitle)),
+        spineIndex(spineIndex),
         section(section),
         originalPageIndex(pageIndex),
         sectionPageIndex(pageIndex) {}
@@ -54,6 +58,7 @@ class DictionaryWordSelectActivity final : public Activity {
     int16_t y;
     int16_t width;
     uint16_t row;
+    uint32_t sourceOrdinal;
     const char* text;
     EpdFontFamily::Style style;
   };
@@ -84,8 +89,10 @@ class DictionaryWordSelectActivity final : public Activity {
   const int marginLeft;
   const int marginTop;
   const Mode mode;
+  const std::string bookPath;
   const std::string bookTitle;
   const std::string chapterTitle;
+  const uint16_t spineIndex;
   int fontId = 0;
   int lineHeight = 0;
 
@@ -105,6 +112,7 @@ class DictionaryWordSelectActivity final : public Activity {
   // range whose highlight boxes are currently painted in the framebuffer
   // (-1 = unknown, the next render must repaint the full page).
   int anchor = -1;
+  uint32_t anchoredSourceOrdinal = Highlights::NO_WORD_ORDINAL;
   int drawnLo = -1;
   int drawnHi = -1;
 
