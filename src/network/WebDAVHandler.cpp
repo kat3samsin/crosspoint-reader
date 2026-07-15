@@ -8,6 +8,7 @@
 
 #include <algorithm>
 #include <cerrno>
+#include <cstring>
 
 #include <ReadestProgressSidecar.h>
 #include <AtomicFileReplace.h>
@@ -123,6 +124,7 @@ void WebDAVHandler::raw(WebServer& server, const String& uri, HTTPRaw& raw) {
   if (raw.status == RAW_START) {
     _putPath = getRequestPath(server);
     _putBytes = 0;
+    _putBufferSize = 0;
     _putValidated = false;
     if (isProtectedPath(_putPath, WebDAVOperation::Put)) {
       _putOk = false;
@@ -178,21 +180,39 @@ void WebDAVHandler::raw(WebServer& server, const String& uri, HTTPRaw& raw) {
   } else if (raw.status == RAW_WRITE) {
     if (_putFile && _putOk) {
       esp_task_wdt_reset();
-      if (WebDAVPathPolicy::classifyProgressSidecar(_putPath.c_str()) ==
-              WebDAVPathPolicy::ProgressSidecarKind::ReadestOwned &&
-          raw.currentSize > WebDAVPathPolicy::MAX_READEST_PROGRESS_SIDECAR_BYTES - _putBytes) {
+      const bool isReadestProgressSidecar =
+          WebDAVPathPolicy::classifyProgressSidecar(_putPath.c_str()) ==
+          WebDAVPathPolicy::ProgressSidecarKind::ReadestOwned;
+      if (isReadestProgressSidecar &&
+          (_putBytes > WebDAVPathPolicy::MAX_READEST_PROGRESS_SIDECAR_BYTES ||
+           raw.currentSize > WebDAVPathPolicy::MAX_READEST_PROGRESS_SIDECAR_BYTES - _putBytes)) {
         _putOk = false;
         return;
       }
-      const size_t written = _putFile.write(raw.buf, raw.currentSize);
-      if (written != raw.currentSize) {
-        _putOk = false;
-      } else {
-        _putBytes += written;
+
+      const uint8_t* data = raw.buf;
+      size_t remaining = raw.currentSize;
+      while (remaining > 0 && _putOk) {
+        const size_t space = _transferBuffer.size() - _putBufferSize;
+        const size_t toCopy = std::min(remaining, space);
+        std::memcpy(_transferBuffer.data() + _putBufferSize, data, toCopy);
+        _putBufferSize += toCopy;
+        data += toCopy;
+        remaining -= toCopy;
+
+        if (_putBufferSize == _transferBuffer.size() && !flushPutBuffer()) {
+          _putOk = false;
+        }
       }
+      if (_putOk) _putBytes += raw.currentSize;
     }
 
   } else if (raw.status == RAW_END) {
+    if (_putFile && _putOk) {
+      _putOk = flushPutBuffer();
+    } else {
+      _putBufferSize = 0;
+    }
     if (_putFile) _putFile.close();
     if (_putOk) {
       String tempPath = _putPath + ".davtmp";
@@ -231,6 +251,7 @@ void WebDAVHandler::raw(WebServer& server, const String& uri, HTTPRaw& raw) {
     LOG_DBG("DAV", "PUT END: %u bytes, ok=%d", raw.totalSize, _putOk);
 
   } else if (raw.status == RAW_ABORTED) {
+    _putBufferSize = 0;
     if (_putFile) _putFile.close();
     String tempPath = _putPath + ".davtmp";
     Storage.remove(tempPath.c_str());
@@ -238,21 +259,36 @@ void WebDAVHandler::raw(WebServer& server, const String& uri, HTTPRaw& raw) {
   }
 }
 
+bool WebDAVHandler::flushPutBuffer() {
+  if (_putBufferSize == 0) return true;
+  if (!_putFile) {
+    _putBufferSize = 0;
+    return false;
+  }
+
+  esp_task_wdt_reset();
+  const size_t buffered = _putBufferSize;
+  const size_t written = _putFile.write(_transferBuffer.data(), buffered);
+  esp_task_wdt_reset();
+  _putBufferSize = 0;
+  return written == buffered;
+}
+
 bool WebDAVHandler::validateProgressSidecarFile(const String& targetPath, const String& candidatePath) {
   HalFile file;
   if (!Storage.openFileForRead("DAV", candidatePath, file)) return false;
   const size_t size = file.fileSize();
-  if (size == 0 || size > _downloadBuffer.size()) {
+  if (size == 0 || size > WebDAVPathPolicy::MAX_READEST_PROGRESS_SIDECAR_BYTES) {
     file.close();
     return false;
   }
-  const int bytesRead = file.read(_downloadBuffer.data(), size);
+  const int bytesRead = file.read(_transferBuffer.data(), size);
   file.close();
   if (bytesRead != static_cast<int>(size)) return false;
 
   const auto kind = WebDAVPathPolicy::classifyProgressSidecar(targetPath.c_str());
   std::string document;
-  const std::string_view json(reinterpret_cast<const char*>(_downloadBuffer.data()), size);
+  const std::string_view json(reinterpret_cast<const char*>(_transferBuffer.data()), size);
   if (kind == WebDAVPathPolicy::ProgressSidecarKind::ReadestOwned) {
     ReadestProgress::ReadestSidecar sidecar;
     if (!ReadestProgress::parseReadestSidecar(json, sidecar)) return false;
@@ -538,8 +574,8 @@ void WebDAVHandler::handleGet(WebServer& s) {
   while (downloadOk && sentBytes < expectedBytes) {
     esp_task_wdt_reset();
     const size_t remaining = expectedBytes - sentBytes;
-    const size_t requested = std::min(remaining, _downloadBuffer.size());
-    const int result = file.read(_downloadBuffer.data(), requested);
+    const size_t requested = std::min(remaining, _transferBuffer.size());
+    const int result = file.read(_transferBuffer.data(), requested);
     if (result <= 0) {
       downloadOk = false;
       break;
@@ -547,7 +583,7 @@ void WebDAVHandler::handleGet(WebServer& s) {
 
     const size_t bytesRead = static_cast<size_t>(result);
     size_t chunkWritten = 0;
-    downloadOk = writeChunk(client, _downloadBuffer.data(), bytesRead, chunkWritten);
+    downloadOk = writeChunk(client, _transferBuffer.data(), bytesRead, chunkWritten);
     sentBytes += chunkWritten;
   }
 
