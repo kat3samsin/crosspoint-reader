@@ -24,6 +24,7 @@ class EpubReaderMenuActivity final : public Activity {
     TOGGLE_BOOKMARK,
     SCREENSHOT,
     DISPLAY_QR,
+    FONT_FAMILY,
     GO_HOME,
     SYNC,
     DELETE_CACHE
@@ -32,7 +33,8 @@ class EpubReaderMenuActivity final : public Activity {
   explicit EpubReaderMenuActivity(GfxRenderer& renderer, MappedInputManager& mappedInput, const std::string& title,
                                   const int currentPage, const int totalPages, const int bookProgressPercent,
                                   const uint8_t currentOrientation, const uint8_t currentFontSize,
-                                  const bool hasFootnotes, bool hasBookmarks);
+                                  const std::string& currentFontFamilyName, const bool hasFootnotes,
+                                  bool hasBookmarks);
 
   void onEnter() override;
   void onExit() override;
@@ -57,6 +59,7 @@ class EpubReaderMenuActivity final : public Activity {
   std::string title = "Reader Menu";
   uint8_t pendingOrientation = 0;
   uint8_t pendingFontSize = 0;
+  std::string currentFontFamilyName;
   uint8_t selectedPageTurnOption = 0;
   const std::array<StrId, 4> orientationLabels = {StrId::STR_PORTRAIT, StrId::STR_LANDSCAPE_CW, StrId::STR_INVERTED,
                                                   StrId::STR_LANDSCAPE_CCW};

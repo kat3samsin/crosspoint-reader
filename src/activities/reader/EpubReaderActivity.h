@@ -24,6 +24,10 @@ class EpubReaderActivity final : public Activity {
   int pagesUntilFullRefresh = 0;
   int cachedSpineIndex = 0;
   int cachedChapterTotalPageCount = 0;
+  // True when cachedChapterTotalPageCount/nextPageNumber describe the layout
+  // before an in-reader setting change. Unlike a plain resume, this can be
+  // remapped immediately against an incremental build's total-page estimate.
+  bool pendingLayoutReflow = false;
   unsigned long lastPageTurnTime = 0UL;
   unsigned long pageTurnDuration = 0UL;
   // Signals that the next render should reposition within the newly loaded section
@@ -37,7 +41,7 @@ class EpubReaderActivity final : public Activity {
   // which recovers a transiently corrupt cache; capped so a persistently bad page can't spin forever.
   uint8_t pageLoadRetryCount = 0;
   static constexpr uint8_t MAX_PAGE_LOAD_RETRIES = 3;
-  bool skipNextButtonCheck = false;  // Skip button processing for one frame after subactivity exit
+  bool skipNextButtonCheck = false;  // Absorb the button release after a press-dismissed subactivity exits
   bool automaticPageTurnActive = false;
   bool showBookmarkMessage = false;
   bool ignoreNextConfirmRelease = false;
@@ -138,8 +142,10 @@ class EpubReaderActivity final : public Activity {
   static constexpr size_t BUILD_POPUP_BYTE_THRESHOLD = 96 * 1024;
   // Remap the cached relative reading position once the section's real page count is known
   // (used after a settings change re-paginates a chapter). Returns true if currentPage moved.
-  // No-op while the section is still building or when the pagination is unchanged (plain resume).
+  // A settings reflow can use an incremental build's page-count estimate; a plain resume waits
+  // for final pagination. No-op when the pagination is unchanged.
   bool applyDeferredReposition();
+  void captureLayoutReflowPosition();
   bool saveProgress(int spineIndex, int currentPage, int pageCount);
   void applyReadestProgressOnOpen();
   bool acknowledgeReadestProgressAfterRender();

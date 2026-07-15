@@ -26,6 +26,7 @@
 #include "EpubReaderFootnotesActivity.h"
 #include "EpubReaderPercentSelectionActivity.h"
 #include "EpubReaderUtils.h"
+#include "activities/settings/FontSelectionActivity.h"
 #include "KOReaderCredentialStore.h"
 #include "KOReaderDocumentId.h"
 #include "KOReaderSyncActivity.h"
@@ -267,10 +268,15 @@ void EpubReaderActivity::openReaderMenu() {
     bookProgress = epub->calculateProgress(currentSpineIndex, chapterProgress) * 100.0f;
   }
   const int bookProgressPercent = clampPercent(static_cast<int>(bookProgress + 0.5f));
+  const std::string currentFontFamilyName =
+      SETTINGS.sdFontFamilyName[0] != '\0'
+          ? SETTINGS.sdFontFamilyName
+          : I18N.get(SETTINGS.fontFamily == CrossPointSettings::NOTOSANS ? StrId::STR_NOTO_SANS
+                                                                        : StrId::STR_NOTO_SERIF);
   startActivityForResult(std::make_unique<EpubReaderMenuActivity>(renderer, mappedInput, epub->getTitle(), currentPage,
                                                                   totalPages, bookProgressPercent, SETTINGS.orientation,
-                                                                  SETTINGS.fontSize, !currentPageFootnotes.empty(),
-                                                                  !cachedBookmarks.empty()),
+                                                                  SETTINGS.fontSize, currentFontFamilyName,
+                                                                  !currentPageFootnotes.empty(), !cachedBookmarks.empty()),
                          [this](const ActivityResult& result) {
                            // Match the existing menu behavior: confirmed option-popup changes
                            // apply even if Back subsequently closes the reader menu.
@@ -433,6 +439,19 @@ void EpubReaderActivity::loop() {
   if (!epub) {
     // Should never happen
     finish();
+    return;
+  }
+
+  if (skipNextButtonCheck) {
+    const bool transitionInputActive =
+        mappedInput.isPressed(MappedInputManager::Button::Confirm) ||
+        mappedInput.isPressed(MappedInputManager::Button::Back) ||
+        mappedInput.wasReleased(MappedInputManager::Button::Confirm) ||
+        mappedInput.wasReleased(MappedInputManager::Button::Back) || mappedInput.wasAnyPressed() ||
+        mappedInput.wasAnyReleased();
+    if (!transitionInputActive) {
+      skipNextButtonCheck = false;
+    }
     return;
   }
 
@@ -948,6 +967,28 @@ void EpubReaderActivity::onReaderMenuConfirm(EpubReaderMenuActivity::MenuAction 
       addBookmark();
       break;
     }
+    case EpubReaderMenuActivity::MenuAction::FONT_FAMILY: {
+      const uint8_t originalFontFamily = SETTINGS.fontFamily;
+      const std::string originalSdFontFamilyName = SETTINGS.sdFontFamilyName;
+      startActivityForResult(
+          std::make_unique<FontSelectionActivity>(renderer, mappedInput, &sdFontSystem.registry()),
+          [this, originalFontFamily, originalSdFontFamilyName](const ActivityResult&) {
+            // FontSelectionActivity exits on button press. Keep its matching release
+            // from reopening the reader menu (Confirm) or leaving the reader (Back).
+            skipNextButtonCheck = true;
+
+            const bool changed = SETTINGS.fontFamily != originalFontFamily ||
+                                 SETTINGS.sdFontFamilyName != originalSdFontFamilyName;
+            RenderLock lock(*this);
+            sdFontSystem.ensureLoaded(renderer);
+            if (!changed) return;
+
+            captureLayoutReflowPosition();
+            SETTINGS.saveToFile();
+            section.reset();
+          });
+      break;
+    }
   }
 }
 
@@ -1009,11 +1050,7 @@ void EpubReaderActivity::applyFontSize(const uint8_t fontSize) {
   }
 
   RenderLock lock(*this);
-  if (section) {
-    cachedSpineIndex = currentSpineIndex;
-    cachedChapterTotalPageCount = section->estimatedTotalPages();
-    nextPageNumber = section->currentPage;
-  }
+  captureLayoutReflowPosition();
 
   SETTINGS.fontSize = fontSize;
   SETTINGS.saveToFile();
@@ -1030,11 +1067,7 @@ void EpubReaderActivity::applyOrientation(const uint8_t orientation) {
   // Preserve current reading position so we can restore after reflow.
   {
     RenderLock lock(*this);
-    if (section) {
-      cachedSpineIndex = currentSpineIndex;
-      cachedChapterTotalPageCount = section->estimatedTotalPages();
-      nextPageNumber = section->currentPage;
-    }
+    captureLayoutReflowPosition();
 
     // Persist the selection so the reader keeps the new orientation on next launch.
     SETTINGS.orientation = orientation;
@@ -1064,11 +1097,7 @@ void EpubReaderActivity::toggleAutoPageTurn(const uint8_t selectedPageTurnOption
   if (statusBarHeight == 0 || statusBarHeight == UITheme::getInstance().getProgressBarHeight()) {
     // Preserve current reading position so we can restore after reflow.
     RenderLock lock(*this);
-    if (section) {
-      cachedSpineIndex = currentSpineIndex;
-      cachedChapterTotalPageCount = section->estimatedTotalPages();
-      nextPageNumber = section->currentPage;
-    }
+    captureLayoutReflowPosition();
     section.reset();
   }
 }
@@ -1207,11 +1236,11 @@ void EpubReaderActivity::render(RenderLock&& lock) {
         SETTINGS.getReaderFontId(), SETTINGS.getReaderLineCompression(), SETTINGS.extraParagraphSpacing,
         SETTINGS.paragraphAlignment, viewportWidth, viewportHeight, SETTINGS.hyphenationEnabled, SETTINGS.embeddedStyle,
         SETTINGS.imageRendering, SETTINGS.focusReadingEnabled);
-    if (cacheLoaded) {
-      // Matching render params means identical pagination, so the saved page number is valid
-      // as-is: consume any pending settings-change reposition. Without this, a chapter total
-      // saved while the section was still building (i.e. a watermark, not the real count)
-      // would remap the resume page against the finalized count and teleport the reader.
+    if (cacheLoaded && !pendingLayoutReflow) {
+      // On a plain resume, matching render params mean identical pagination, so the saved page
+      // number is valid as-is. Without this, a chapter total saved while the section was still
+      // building (a watermark, not the real count) could remap against the finalized count and
+      // teleport the reader. An explicit in-reader reflow keeps its old-layout snapshot instead.
       cachedChapterTotalPageCount = 0;
     }
     const bool cacheComplete = cacheLoaded && !section->isPartial();
@@ -1371,6 +1400,12 @@ void EpubReaderActivity::render(RenderLock&& lock) {
       pendingPercentJump = false;
     }
   }
+
+  // A layout setting changed while this book was open. Reposition before the
+  // catch-up loops below so an incremental build lays out the mapped page, not
+  // the old layout's raw page number. A finalized cache maps exactly; a fresh
+  // build uses Section's best-known total-page estimate.
+  applyDeferredReposition();
 
   // Extend the build to the requested page if needed (for partials and in-progress builds).
   // This runs every render, so it covers both the first page and any forward turn that gets
@@ -1547,27 +1582,46 @@ void EpubReaderActivity::render(RenderLock&& lock) {
 }
 
 bool EpubReaderActivity::applyDeferredReposition() {
-  if (cachedChapterTotalPageCount == 0 || !section || section->isBuilding()) {
+  if (cachedChapterTotalPageCount == 0 || !section || (section->isBuilding() && !pendingLayoutReflow)) {
     return false;
   }
+
+  const int targetPageCount =
+      pendingLayoutReflow ? static_cast<int>(section->estimatedTotalPages()) : static_cast<int>(section->pageCount);
+  if (targetPageCount <= 0) return false;
+
   bool changed = false;
   // Only remap when the chapter actually re-paginated (e.g. after a settings change). A plain
   // resume has identical pagination, so section->pageCount == cachedChapterTotalPageCount and
   // nothing moves.
-  if (currentSpineIndex == cachedSpineIndex && section->pageCount != cachedChapterTotalPageCount) {
-    const float progress = static_cast<float>(section->currentPage) / static_cast<float>(cachedChapterTotalPageCount);
-    int newPage = static_cast<int>(progress * static_cast<float>(section->pageCount));
+  if (currentSpineIndex == cachedSpineIndex && targetPageCount != cachedChapterTotalPageCount) {
+    const int sourcePage = pendingLayoutReflow ? nextPageNumber : section->currentPage;
+    const float progress = static_cast<float>(sourcePage) / static_cast<float>(cachedChapterTotalPageCount);
+    int newPage = static_cast<int>(progress * static_cast<float>(targetPageCount));
     if (newPage < 0) newPage = 0;
-    if (section->pageCount > 0 && newPage >= static_cast<int>(section->pageCount)) {
-      newPage = section->pageCount - 1;
+    if (newPage >= targetPageCount) {
+      newPage = targetPageCount - 1;
     }
     if (newPage != section->currentPage) {
       section->currentPage = newPage;
       changed = true;
     }
+    if (pendingLayoutReflow) nextPageNumber = newPage;
   }
+  pendingLayoutReflow = false;
   cachedChapterTotalPageCount = 0;  // consumed; don't read cached progress again
   return changed;
+}
+
+void EpubReaderActivity::captureLayoutReflowPosition() {
+  // A menu can change several layout settings in one close. The first change
+  // resets section, so later changes must preserve that original snapshot.
+  if (pendingLayoutReflow || !section) return;
+
+  cachedSpineIndex = currentSpineIndex;
+  cachedChapterTotalPageCount = section->estimatedTotalPages();
+  nextPageNumber = section->currentPage;
+  pendingLayoutReflow = cachedChapterTotalPageCount > 0;
 }
 
 bool EpubReaderActivity::saveProgress(int spineIndex, int currentPage, int pageCount) {

@@ -11,6 +11,8 @@
 
 class OptionPopup {
  public:
+  enum class DismissEvent { Press, Release };
+
   void show(StrId titleId, const StrId* optionIds, int optionCount, int currentIndex,
             std::function<void(int)> onSelect) {
     title = I18N.get(titleId);
@@ -44,10 +46,14 @@ class OptionPopup {
     active = true;
   }
 
-  bool handleInput(MappedInputManager& input, const std::function<void()>& requestUpdate) {
+  bool handleInput(MappedInputManager& input, const std::function<void()>& requestUpdate,
+                   DismissEvent dismissEvent = DismissEvent::Press) {
     if (!active) return false;
 
     const int count = static_cast<int>(ownedStrings.size());
+    const auto shouldDismiss = [&input, dismissEvent](MappedInputManager::Button button) {
+      return dismissEvent == DismissEvent::Release ? input.wasReleased(button) : input.wasPressed(button);
+    };
     if (input.wasPressed(MappedInputManager::Button::Up) || input.wasPressed(MappedInputManager::Button::Left)) {
       selectedIndex = (selectedIndex - 1 + count) % count;
       requestUpdate();
@@ -57,12 +63,12 @@ class OptionPopup {
       selectedIndex = (selectedIndex + 1) % count;
       requestUpdate();
       return true;
-    } else if (input.wasPressed(MappedInputManager::Button::Confirm)) {
+    } else if (shouldDismiss(MappedInputManager::Button::Confirm)) {
       active = false;
       if (onSelectCallback) onSelectCallback(selectedIndex);
       requestUpdate();
       return true;
-    } else if (input.wasPressed(MappedInputManager::Button::Back)) {
+    } else if (shouldDismiss(MappedInputManager::Button::Back)) {
       active = false;
       requestUpdate();
       return true;
