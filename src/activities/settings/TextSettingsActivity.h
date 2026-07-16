@@ -22,7 +22,7 @@ class TextSettingsActivity final : public Activity {
   enum class Tab : uint8_t { Family, Size, Layout, Style, Count };
 
   TextSettingsActivity(GfxRenderer& renderer, MappedInputManager& mappedInput, const SdCardFontRegistry* registry,
-                       Tab initialTab = Tab::Family);
+                       Tab initialTab = Tab::Family, std::string previewText = {});
 
   void onEnter() override;
   void onExit() override;
@@ -79,6 +79,7 @@ class TextSettingsActivity final : public Activity {
   };
 
   const SdCardFontRegistry* registry_;
+  const std::string previewText_;
   ButtonNavigator buttonNavigator_;
   OptionPopup optionPopup_;
   std::vector<FontEntry> fonts_;

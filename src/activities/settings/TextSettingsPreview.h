@@ -20,6 +20,7 @@ struct PreviewKey {
   bool extraParagraphSpacing = false;
   bool focusReading = false;
   bool hyphenation = false;
+  uint32_t sourceHash = 0;
   bool operator==(const PreviewKey&) const = default;
 };
 
@@ -29,8 +30,8 @@ struct PreviewLayout {
   PreviewKey key;
 };
 
-// Draws the sample-text pane via the reader engine, reusing layout across redraws
+// Draws the preview pane via the reader engine, reusing layout across redraws.
 void renderPreview(const GfxRenderer& renderer, PreviewLayout& layout, int previewPadding, int labelGap, int top,
-                   int height, const char* familyName, const char* sizeName);
+                   int height, const char* familyName, const char* sizeName, const char* previewText = nullptr);
 
 }  // namespace textsettings

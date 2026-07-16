@@ -8,6 +8,7 @@
 #include <cstring>
 #include <iterator>
 #include <string>
+#include <utility>
 #include <vector>
 
 #include "CrossPointSettings.h"
@@ -44,8 +45,11 @@ constexpr int MARGIN_STEP = CrossPointSettings::SCREEN_MARGIN_STEP;
 }  // namespace
 
 TextSettingsActivity::TextSettingsActivity(GfxRenderer& renderer, MappedInputManager& mappedInput,
-                                           const SdCardFontRegistry* registry, Tab initialTab)
-    : Activity("TextSettings", renderer, mappedInput), registry_(registry), tab_(initialTab) {}
+                                           const SdCardFontRegistry* registry, Tab initialTab, std::string previewText)
+    : Activity("TextSettings", renderer, mappedInput),
+      registry_(registry),
+      previewText_(std::move(previewText)),
+      tab_(initialTab) {}
 
 void TextSettingsActivity::onEnter() {
   Activity::onEnter();
@@ -228,7 +232,7 @@ void TextSettingsActivity::render(RenderLock&&) {
                              ? sizes_[currentSizeIndex_].name.c_str()
                              : "";
   textsettings::renderPreview(renderer, previewLayout_, metrics_.previewPadding, metrics_.verticalSpacing,
-                              geo.previewTop, previewHeight, familyName, sizeName);
+                              geo.previewTop, previewHeight, familyName, sizeName, previewText_.c_str());
 
   const bool onTabBar = selectedIndex() == 0;
   std::vector<TabInfo> tabs;

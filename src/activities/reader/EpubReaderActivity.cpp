@@ -13,6 +13,7 @@
 #include <esp_system.h>
 
 #include <algorithm>
+#include <cstring>
 #include <functional>
 #include <iterator>
 #include <limits>
@@ -50,6 +51,42 @@ namespace {
 constexpr int PAGE_TURN_RATES[] = {1, 1, 3, 6, 12};
 constexpr size_t initialBookmarkCacheCapacity = 16;
 constexpr float bookmarkProgressEpsilon = 0.0001f;
+constexpr size_t CURRENT_PAGE_PREVIEW_MAX_BYTES = 768;
+
+std::string buildCurrentPagePreviewText(const Page& page) {
+  struct PreviewWord {
+    uint32_t sourceOrdinal;
+    const char* text;
+  };
+
+  std::vector<PreviewWord> words;
+  words.reserve(160);
+  for (const auto& element : page.elements) {
+    if (element->getTag() != TAG_PageLine) continue;
+    const auto& block = static_cast<const PageLine&>(*element).getBlock();
+    if (!block || !block->valid()) continue;
+    for (uint16_t i = 0; i < block->wordCount(); i++) {
+      if (block->wordSourceOrdinal(i) == TextBlock::NO_SOURCE_ORDINAL) continue;
+      words.push_back({block->wordSourceOrdinal(i), block->wordText(i)});
+    }
+  }
+  std::stable_sort(words.begin(), words.end(), [](const PreviewWord& a, const PreviewWord& b) {
+    return a.sourceOrdinal < b.sourceOrdinal;
+  });
+
+  std::string preview;
+  preview.reserve(CURRENT_PAGE_PREVIEW_MAX_BYTES);
+  uint32_t previousOrdinal = TextBlock::NO_SOURCE_ORDINAL;
+  for (const auto& word : words) {
+    const size_t length = strlen(word.text);
+    const size_t separator = preview.empty() || word.sourceOrdinal == previousOrdinal ? 0 : 1;
+    if (preview.size() + separator + length > CURRENT_PAGE_PREVIEW_MAX_BYTES) break;
+    if (separator != 0) preview.push_back(' ');
+    preview.append(word.text, length);
+    previousOrdinal = word.sourceOrdinal;
+  }
+  return preview;
+}
 
 int clampPercent(int percent) {
   if (percent < 0) {
@@ -1031,7 +1068,8 @@ void EpubReaderActivity::onReaderMenuConfirm(EpubReaderMenuActivity::MenuAction 
     }
     case EpubReaderMenuActivity::MenuAction::TEXT_SETTINGS: {
       startActivityForResult(std::make_unique<TextSettingsActivity>(renderer, mappedInput, &sdFontSystem.registry(),
-                                                                    TextSettingsActivity::Tab::Family),
+                                                                    TextSettingsActivity::Tab::Family,
+                                                                    currentPagePreviewText),
                              [this](const ActivityResult&) {
                                // TextSettingsActivity saves on each change; no save needed here.
                                // Font/size/spacing/margin changes invalidate the current
@@ -1699,6 +1737,7 @@ void EpubReaderActivity::render(RenderLock&& lock) {
       return;
     }
     pageLoadRetryCount = 0;  // Reset the retry counter once a page loads cleanly
+    currentPagePreviewText = buildCurrentPagePreviewText(*p);
 
     // Cache this page's content offset (read alongside the page, no extra file open) so
     // saveProgress and addBookmark can use it without reopening section.bin.
