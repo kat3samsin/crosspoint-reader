@@ -1,0 +1,178 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="960" viewBox="0 0 1600 960" role="img" aria-labelledby="title desc">
+  <title id="title">CrossPoint Readest feature mockups</title>
+  <desc id="desc">Four e-ink reader screens showing the Readest home, persistent highlights, live book settings, and an offline dictionary.</desc>
+  <defs>
+    <linearGradient id="paper" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#f7f3e9"/>
+      <stop offset="1" stop-color="#e9e2d2"/>
+    </linearGradient>
+    <filter id="shadow" x="-20%" y="-20%" width="140%" height="160%">
+      <feDropShadow dx="0" dy="18" stdDeviation="16" flood-color="#17231d" flood-opacity=".18"/>
+    </filter>
+    <pattern id="marker" width="6" height="6" patternUnits="userSpaceOnUse">
+      <rect width="6" height="6" fill="#d7d7d2"/>
+      <circle cx="1.5" cy="1.5" r=".7" fill="#9b9b96"/>
+      <circle cx="4.5" cy="4.5" r=".7" fill="#9b9b96"/>
+    </pattern>
+    <style>
+      .sans { font-family: Inter, ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+      .serif { font-family: Georgia, "Times New Roman", serif; }
+      .label { fill: #1f5b48; font-size: 15px; font-weight: 800; letter-spacing: .14em; }
+      .screen-title { fill: #111; font-size: 18px; font-weight: 700; }
+      .screen-small { fill: #222; font-size: 12px; }
+      .screen-body { fill: #111; font-size: 15px; }
+      .screen-meta { fill: #333; font-size: 12px; }
+      .device-label { fill: #17231d; font-size: 21px; font-weight: 760; }
+      .device-copy { fill: #59635d; font-size: 14px; }
+      .hairline { stroke: #1d1d1b; stroke-width: 1; }
+    </style>
+  </defs>
+
+  <rect width="1600" height="960" fill="url(#paper)"/>
+  <circle cx="1470" cy="70" r="210" fill="#df7049" opacity=".11"/>
+  <circle cx="88" cy="830" r="260" fill="#1f5b48" opacity=".08"/>
+
+  <g class="sans">
+    <text x="78" y="76" class="label">CURRENT BRANCH · UI MOCKUPS</text>
+    <text x="78" y="124" fill="#17231d" font-size="42" font-weight="780" letter-spacing="-.03em">A quieter reader, with the tools close by.</text>
+    <text x="78" y="158" fill="#59635d" font-size="18">The mockups follow the X4 portrait layout and controls implemented in this fork.</text>
+  </g>
+
+  <!-- Readest home -->
+  <g transform="translate(72 210)">
+    <rect x="0" y="0" width="328" height="610" rx="26" fill="#252724" filter="url(#shadow)"/>
+    <rect x="18" y="18" width="292" height="548" rx="5" fill="#f2f1eb"/>
+    <circle cx="164" cy="588" r="9" fill="#555853"/>
+    <g transform="translate(35 35)">
+      <text x="0" y="14" class="sans screen-small">1 of 4</text>
+      <rect x="221" y="3" width="27" height="12" rx="2" fill="none" stroke="#111"/>
+      <rect x="248" y="6" width="3" height="6" fill="#111"/>
+      <rect x="224" y="6" width="18" height="6" fill="#111"/>
+
+      <rect x="65" y="39" width="126" height="198" rx="2" fill="#262c28"/>
+      <path d="M65 177h126v60H65z" fill="#d7d0bf"/>
+      <text x="128" y="92" text-anchor="middle" fill="#f4f1e8" class="serif" font-size="20" font-weight="700">THE</text>
+      <text x="128" y="119" text-anchor="middle" fill="#f4f1e8" class="serif" font-size="24" font-weight="700">QUIET</text>
+      <text x="128" y="146" text-anchor="middle" fill="#f4f1e8" class="serif" font-size="20" font-weight="700">READER</text>
+      <path d="M90 201h76M100 213h56" stroke="#262c28" stroke-width="2"/>
+
+      <text x="128" y="269" text-anchor="middle" class="sans screen-title">A Field Guide to Quiet</text>
+      <text x="128" y="291" text-anchor="middle" class="sans screen-meta">M. Rowan</text>
+      <text x="128" y="314" text-anchor="middle" class="sans screen-meta">42% · 18 min left</text>
+
+      <rect x="0" y="335" width="256" height="40" fill="#111"/>
+      <text x="128" y="360" text-anchor="middle" fill="#fff" class="sans" font-size="14" font-weight="700">Continue reading</text>
+      <path d="M0 394h256M0 438h256M0 482h256" class="hairline"/>
+      <text x="16" y="423" class="sans screen-body">Library</text>
+      <text x="16" y="467" class="sans screen-body">More</text>
+      <text x="0" y="511" class="sans screen-small">Open</text>
+      <text x="198" y="511" class="sans screen-small">Up</text>
+      <text x="234" y="511" class="sans screen-small">Down</text>
+    </g>
+    <text x="164" y="646" text-anchor="middle" class="sans device-label">Readest home</text>
+    <text x="164" y="672" text-anchor="middle" class="sans device-copy">Cover-first, with Library and More.</text>
+  </g>
+
+  <!-- Highlights -->
+  <g transform="translate(450 210)">
+    <rect x="0" y="0" width="328" height="610" rx="26" fill="#252724" filter="url(#shadow)"/>
+    <rect x="18" y="18" width="292" height="548" rx="5" fill="#f2f1eb"/>
+    <circle cx="164" cy="588" r="9" fill="#555853"/>
+    <g transform="translate(40 38)">
+      <text x="0" y="18" class="serif screen-body">The margin of a page can hold</text>
+      <text x="0" y="43" class="serif screen-body">more than empty space. It can</text>
+      <rect x="-3" y="54" width="242" height="22" fill="url(#marker)"/>
+      <text x="0" y="70" class="serif screen-body">keep a thought warm until you</text>
+      <rect x="-3" y="79" width="183" height="22" fill="url(#marker)"/>
+      <text x="0" y="95" class="serif screen-body">have time to return to it.</text>
+      <text x="0" y="133" class="serif screen-body">A good reader makes that return</text>
+      <text x="0" y="158" class="serif screen-body">easy. The page stays calm. The</text>
+      <text x="0" y="183" class="serif screen-body">mark stays exactly where it was.</text>
+      <text x="0" y="221" class="serif screen-body">Turn the page and the selection</text>
+      <text x="0" y="246" class="serif screen-body">can continue with you.</text>
+
+      <line x1="0" y1="421" x2="238" y2="421" stroke="#111" stroke-width="2"/>
+      <text x="0" y="444" class="sans screen-small">12/27</text>
+      <text x="215" y="444" class="sans screen-small">44%</text>
+
+      <rect x="-22" y="466" width="282" height="42" fill="#111"/>
+      <text x="-7" y="492" fill="#fff" class="sans" font-size="12">Back</text>
+      <text x="61" y="492" fill="#fff" class="sans" font-size="12" font-weight="700">Save</text>
+      <text x="142" y="492" fill="#fff" class="sans" font-size="12">Left</text>
+      <text x="216" y="492" fill="#fff" class="sans" font-size="12">Right</text>
+    </g>
+    <text x="164" y="646" text-anchor="middle" class="sans device-label">Persistent highlights</text>
+    <text x="164" y="672" text-anchor="middle" class="sans device-copy">Cross-page selection, Markdown export.</text>
+  </g>
+
+  <!-- Reader settings -->
+  <g transform="translate(828 210)">
+    <rect x="0" y="0" width="328" height="610" rx="26" fill="#252724" filter="url(#shadow)"/>
+    <rect x="18" y="18" width="292" height="548" rx="5" fill="#f2f1eb"/>
+    <circle cx="164" cy="588" r="9" fill="#555853"/>
+    <g transform="translate(38 34)">
+      <text x="0" y="18" class="serif screen-body">The page remains in view while</text>
+      <text x="0" y="44" class="serif screen-body">you tune the type. A wider line</text>
+      <text x="0" y="70" class="serif screen-body">or a little more air becomes</text>
+      <text x="0" y="96" class="serif screen-body">visible before you leave.</text>
+      <text x="18" y="139" class="serif screen-body">The next paragraph shows the</text>
+      <text x="0" y="165" class="serif screen-body">indent and spacing together.</text>
+      <line x1="-20" y1="243" x2="272" y2="243" stroke="#111" stroke-width="3"/>
+
+      <text x="0" y="271" class="sans screen-title">Book settings</text>
+      <line x1="0" y1="288" x2="252" y2="288" class="hairline"/>
+      <text x="10" y="313" class="sans screen-small">Font</text>
+      <text x="179" y="313" class="sans screen-small">Noto Serif</text>
+      <line x1="0" y1="326" x2="252" y2="326" class="hairline"/>
+      <rect x="0" y="327" width="252" height="38" fill="#111"/>
+      <text x="10" y="351" fill="#fff" class="sans" font-size="12" font-weight="700">Font size</text>
+      <text x="202" y="351" fill="#fff" class="sans" font-size="12">Medium</text>
+      <line x1="0" y1="366" x2="252" y2="366" class="hairline"/>
+      <text x="10" y="390" class="sans screen-small">Line spacing</text>
+      <text x="208" y="390" class="sans screen-small">Normal</text>
+      <line x1="0" y1="404" x2="252" y2="404" class="hairline"/>
+      <text x="10" y="428" class="sans screen-small">Margins</text>
+      <text x="233" y="428" class="sans screen-small">20</text>
+      <line x1="0" y1="442" x2="252" y2="442" class="hairline"/>
+      <text x="0" y="500" class="sans screen-small">Done</text>
+      <text x="75" y="500" class="sans screen-small">Toggle</text>
+      <text x="184" y="500" class="sans screen-small">−</text>
+      <text x="239" y="500" class="sans screen-small">+</text>
+    </g>
+    <text x="164" y="646" text-anchor="middle" class="sans device-label">Live book settings</text>
+    <text x="164" y="672" text-anchor="middle" class="sans device-copy">The current page is the preview.</text>
+  </g>
+
+  <!-- Dictionary -->
+  <g transform="translate(1206 210)">
+    <rect x="0" y="0" width="328" height="610" rx="26" fill="#252724" filter="url(#shadow)"/>
+    <rect x="18" y="18" width="292" height="548" rx="5" fill="#f2f1eb"/>
+    <circle cx="164" cy="588" r="9" fill="#555853"/>
+    <g transform="translate(38 35)">
+      <text x="0" y="21" class="sans screen-title">margin</text>
+      <text x="252" y="19" text-anchor="end" class="sans screen-small">Webster</text>
+      <line x1="0" y1="35" x2="252" y2="35" class="hairline"/>
+      <text x="0" y="66" class="serif" font-size="14" font-style="italic">noun</text>
+      <text x="0" y="98" class="serif screen-body">1. The blank border around the</text>
+      <text x="0" y="123" class="serif screen-body">printed area of a page.</text>
+      <text x="0" y="164" class="serif screen-body">2. An amount by which a thing</text>
+      <text x="0" y="189" class="serif screen-body">is won, falls short, or differs.</text>
+      <text x="0" y="237" class="sans screen-small" font-weight="700">Offline lookup</text>
+      <text x="0" y="262" class="sans screen-small">StarDict .idx + .dict/.dict.dz</text>
+      <text x="0" y="286" class="sans screen-small">Small sampled index on SD card</text>
+
+      <rect x="0" y="335" width="252" height="42" fill="#111"/>
+      <text x="126" y="361" text-anchor="middle" fill="#fff" class="sans" font-size="13" font-weight="700">Back to book</text>
+      <line x1="0" y1="421" x2="252" y2="421" class="hairline"/>
+      <text x="0" y="447" class="sans screen-small">Back</text>
+      <text x="212" y="447" class="sans screen-small">Scroll</text>
+    </g>
+    <text x="164" y="646" text-anchor="middle" class="sans device-label">Offline dictionary</text>
+    <text x="164" y="672" text-anchor="middle" class="sans device-copy">Fast StarDict lookup from the page.</text>
+  </g>
+
+  <g class="sans" transform="translate(78 902)">
+    <rect x="0" y="-20" width="8" height="8" rx="4" fill="#df7049"/>
+    <text x="22" y="-10" fill="#59635d" font-size="13">Mockups, not photographs. Labels and feature states reflect the current crossreadest working tree.</text>
+  </g>
+</svg>
