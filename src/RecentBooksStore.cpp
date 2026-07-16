@@ -17,6 +17,8 @@ void RecentBooksStore::toJson(JsonDocument& doc) const {
     obj["title"] = book.title;
     obj["author"] = book.author;
     obj["coverBmpPath"] = book.coverBmpPath;
+    if (book.progressPercent >= 0) obj["progressPercent"] = book.progressPercent;
+    if (book.minutesLeftInChapter >= 0) obj["minutesLeftInChapter"] = book.minutesLeftInChapter;
   }
 }
 
@@ -33,6 +35,8 @@ bool RecentBooksStore::fromJson(JsonVariantConst doc) {
     book.title = obj["title"] | "";
     book.author = obj["author"] | "";
     book.coverBmpPath = obj["coverBmpPath"] | "";
+    book.progressPercent = std::clamp(obj["progressPercent"] | -1, -1, 100);
+    book.minutesLeftInChapter = std::clamp(obj["minutesLeftInChapter"] | -1, -1, 999);
     recentBooks.push_back(book);
   }
 
@@ -57,14 +61,19 @@ void RecentBooksStore::addBook(const std::string& path, const std::string& title
   }
 
   // Remove an existing entry so it can move to the front with fresh metadata.
+  int progressPercent = -1;
+  int minutesLeftInChapter = -1;
   it = std::find_if(recentBooks.begin(), recentBooks.end(),
                     [&](const RecentBook& book) { return book.path == path; });
   if (it != recentBooks.end()) {
+    progressPercent = it->progressPercent;
+    minutesLeftInChapter = it->minutesLeftInChapter;
     recentBooks.erase(it);
   }
 
   // Add to front
-  recentBooks.insert(recentBooks.begin(), {path, title, author, coverBmpPath});
+  recentBooks.insert(recentBooks.begin(),
+                     {path, title, author, coverBmpPath, progressPercent, minutesLeftInChapter});
 
   // Trim to max size
   if (recentBooks.size() > MAX_RECENT_BOOKS) {
@@ -85,6 +94,24 @@ void RecentBooksStore::updateBook(const std::string& path, const std::string& ti
     book.coverBmpPath = coverBmpPath;
     saveToFile();
   }
+}
+
+void RecentBooksStore::updateProgress(const std::string& path, const int progressPercent,
+                                      const int minutesLeftInChapter) {
+  auto it =
+      std::find_if(recentBooks.begin(), recentBooks.end(), [&](const RecentBook& book) { return book.path == path; });
+  if (it == recentBooks.end()) {
+    return;
+  }
+
+  const int safeProgress = std::clamp(progressPercent, -1, 100);
+  const int safeMinutes = std::clamp(minutesLeftInChapter, -1, 999);
+  if (it->progressPercent == safeProgress && it->minutesLeftInChapter == safeMinutes) {
+    return;
+  }
+  it->progressPercent = safeProgress;
+  it->minutesLeftInChapter = safeMinutes;
+  saveToFile();
 }
 
 bool RecentBooksStore::removeByPath(const std::string& path) {

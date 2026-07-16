@@ -7,6 +7,11 @@
 
 namespace ReadestProgress {
 
+// Readest's WebDAV book names may end in "-<7 hex digits>" before .epub.
+// CrossPoint stores the simpler title-only path while treating both forms as
+// the same manifest-owned book.
+std::string canonicalRootBookPath(std::string_view path);
+
 class LibraryOwnershipScanner final {
   std::string targetPath;
   bool awaitingPathValue = false;

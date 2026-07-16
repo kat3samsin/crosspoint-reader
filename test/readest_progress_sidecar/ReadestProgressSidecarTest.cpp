@@ -254,4 +254,24 @@ TEST(ReadestLibraryOwnership, MatchesOnlyTheExactManifestOwnedRootBook) {
   EXPECT_FALSE(ReadestProgress::manifestOwnsRootBook(manifest, "/read/Witchcraft for Wayward Girls.epub"));
 }
 
+TEST(ReadestLibraryOwnership, CanonicalizesReadestFingerprintSuffixes) {
+  EXPECT_EQ(ReadestProgress::canonicalRootBookPath("/My Friends-1549f3b.epub"), "/My Friends.epub");
+  EXPECT_EQ(ReadestProgress::canonicalRootBookPath("/My Friends.epub"), "/My Friends.epub");
+  EXPECT_EQ(ReadestProgress::canonicalRootBookPath("/My Friends-1549f3b.txt"), "/My Friends-1549f3b.txt");
+  EXPECT_EQ(ReadestProgress::canonicalRootBookPath("/Books/My Friends-1549f3b.epub"),
+            "/Books/My Friends-1549f3b.epub");
+}
+
+TEST(ReadestLibraryOwnership, MatchesHashedManifestPathFromCanonicalBookPath) {
+  constexpr std::string_view manifest =
+      R"({"version":1,"books":{"first":{"path":"/My Friends-1549f3b.epub","size":10,"revision":1,"state":"active"}}})";
+  EXPECT_TRUE(ReadestProgress::manifestOwnsRootBook(manifest, "/My Friends.epub"));
+}
+
+TEST(ReadestLibraryOwnership, RejectsNestedManifestTargets) {
+  constexpr std::string_view manifest =
+      R"({"version":1,"books":{"first":{"path":"/Books/My Friends.epub","size":10,"revision":1,"state":"active"}}})";
+  EXPECT_FALSE(ReadestProgress::manifestOwnsRootBook(manifest, "/Books/My Friends.epub"));
+}
+
 }  // namespace

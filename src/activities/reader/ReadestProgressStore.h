@@ -20,4 +20,8 @@ bool saveCrossPoint(ReadestProgress::CrossPointSidecar& sidecar);
 std::string calculateRevision(std::string_view document, std::string_view xpointer, float percentage);
 ManifestOwnership getManifestOwnership(std::string_view rootBookPath);
 
+// Remove older root-level EPUB copies with the same KOReader/Readest content
+// identity as a manifest-owned book. The manifest-owned path is preserved.
+void removeDuplicateRootBooks(std::string_view canonicalPath);
+
 }  // namespace ReadestProgressStore

@@ -2,6 +2,8 @@
 
 #include <cstring>
 
+#include <string>
+
 namespace ReadestProgress {
 namespace {
 
@@ -18,14 +20,39 @@ bool isSafeRootEpubPath(const std::string_view path) {
   return true;
 }
 
+bool isHex(const char character) {
+  return (character >= '0' && character <= '9') || (character >= 'a' && character <= 'f') ||
+         (character >= 'A' && character <= 'F');
+}
+
 }  // namespace
+
+std::string canonicalRootBookPath(const std::string_view path) {
+  if (!isSafeRootEpubPath(path)) return std::string(path);
+
+  constexpr size_t suffixLength = 7;
+  constexpr size_t extensionLength = 5;
+  const size_t stemEnd = path.size() - extensionLength;
+  if (stemEnd <= suffixLength + 1 || path[stemEnd - suffixLength - 1] != '-') {
+    return std::string(path);
+  }
+
+  const size_t hashStart = stemEnd - suffixLength;
+  for (size_t index = hashStart; index < stemEnd; ++index) {
+    if (!isHex(path[index])) return std::string(path);
+  }
+
+  std::string canonical(path.substr(0, hashStart - 1));
+  canonical += ".epub";
+  return canonical;
+}
 
 JsonCallbacks LibraryOwnershipScanner::callbacksFor(LibraryOwnershipScanner* scanner) {
   return {scanner, onKey, onString, onNumber, onBool, onNull, nullptr, nullptr, nullptr, nullptr};
 }
 
 LibraryOwnershipScanner::LibraryOwnershipScanner(const std::string_view rootBookPath)
-    : targetPath(isSafeRootEpubPath(rootBookPath) ? rootBookPath : std::string_view{}),
+    : targetPath(isSafeRootEpubPath(rootBookPath) ? canonicalRootBookPath(rootBookPath) : std::string{}),
       parser(callbacksFor(this)) {}
 
 void LibraryOwnershipScanner::feed(const char* data, const size_t length) {
@@ -39,8 +66,8 @@ void LibraryOwnershipScanner::onKey(void* context, const char* key, const size_t
 
 void LibraryOwnershipScanner::onString(void* context, const char* value, const size_t length) {
   auto* scanner = static_cast<LibraryOwnershipScanner*>(context);
-  if (scanner->awaitingPathValue && !scanner->targetPath.empty() && scanner->targetPath.size() == length &&
-      memcmp(scanner->targetPath.data(), value, length) == 0) {
+  if (scanner->awaitingPathValue && !scanner->targetPath.empty() &&
+      canonicalRootBookPath(std::string_view(value, length)) == scanner->targetPath) {
     scanner->owned = true;
   }
   scanner->awaitingPathValue = false;

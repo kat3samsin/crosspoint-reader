@@ -15,6 +15,7 @@ class HomeActivity final : public Activity {
   bool recentsLoading = false;
   bool recentsLoaded = false;
   bool hasOpdsServers = false;
+  bool readestMoreOpen = false;
   bool coverRendered = false;      // Track if cover has been rendered once
   bool coverBufferStored = false;  // Track if cover buffer is stored
   // Home can be entered while Back is still held (e.g. leaving Settings with
@@ -70,6 +71,9 @@ class HomeActivity final : public Activity {
   void freeCoverBuffer();     // Free the stored cover buffer
   void loadRecentBooks(int maxBooks);
   void loadRecentCovers(int coverHeight);
+  bool isReadestHome() const;
+  void setReadestSelectorIndex(int index);
+  void renderReadestHome();
 
  public:
   explicit HomeActivity(GfxRenderer& renderer, MappedInputManager& mappedInput,

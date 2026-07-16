@@ -162,7 +162,8 @@ class CrossPointSettings : public PersistableStore<CrossPointSettings> {
   };
 
   // UI Theme
-  enum UI_THEME { CLASSIC = 0, LYRA = 1, LYRA_3_COVERS = 2, ROUNDEDRAFF = 3 };
+  // Keep numeric values stable because the selected theme is persisted on the SD card.
+  enum UI_THEME { CLASSIC = 0, LYRA = 1, LYRA_3_COVERS = 2, ROUNDEDRAFF = 3, READEST = 4 };
 
   // Image rendering in EPUB reader
   enum IMAGE_RENDERING { IMAGES_DISPLAY = 0, IMAGES_PLACEHOLDER = 1, IMAGES_SUPPRESS = 2, IMAGE_RENDERING_COUNT };
@@ -178,18 +179,18 @@ class CrossPointSettings : public PersistableStore<CrossPointSettings> {
   };
 
   // Sleep screen settings
-  uint8_t sleepScreen = DARK;
+  uint8_t sleepScreen = COVER;
   // Sleep screen cover mode settings
   uint8_t sleepScreenCoverMode = FIT;
   // Sleep screen cover filter
-  uint8_t sleepScreenCoverFilter = NO_FILTER;
+  uint8_t sleepScreenCoverFilter = BLACK_AND_WHITE;
   // Status bar settings
   uint8_t statusBarChapterPageCount = 1;
   uint8_t statusBarBookProgressPercentage = 1;
   uint8_t statusBarProgressBar = HIDE_PROGRESS;
   uint8_t statusBarProgressBarThickness = PROGRESS_BAR_NORMAL;
-  uint8_t statusBarTitle = CHAPTER_TITLE;
-  uint8_t statusBarBattery = 1;
+  uint8_t statusBarTitle = HIDE_TITLE;
+  uint8_t statusBarBattery = 0;
   uint8_t xtcStatusBarMode = XTC_STATUS_BAR_HIDE;
   // Clock display in status bar (X3 only, requires DS3231 RTC)
   uint8_t statusBarClock = STATUS_BAR_CLOCK_HIDE;
@@ -203,7 +204,7 @@ class CrossPointSettings : public PersistableStore<CrossPointSettings> {
   // Resetting to 0 (e.g. via the web UI) forces a re-sync on next WiFi connect.
   uint8_t clockHasBeenSynced = 0;
   // Text rendering settings
-  uint8_t extraParagraphSpacing = 1;
+  uint8_t extraParagraphSpacing = 0;
   uint8_t textAntiAliasing = 1;
   // Short power button click behaviour
   uint8_t shortPwrBtn = IGNORE;
@@ -227,7 +228,7 @@ class CrossPointSettings : public PersistableStore<CrossPointSettings> {
   // available size (and persists the snap) whenever the family changes.
   uint8_t fontPointSize = DEFAULT_FONT_POINT_SIZE;
   uint8_t lineSpacing = NORMAL;
-  uint8_t paragraphAlignment = JUSTIFIED;
+  uint8_t paragraphAlignment = BOOK_STYLE;
   // Auto-sleep timeout setting (default 10 minutes). Legacy sleepTimeout enum values are migration-only.
   uint8_t sleepTimeoutMinutes = 10;
   // E-ink refresh frequency (default 15 pages)
@@ -238,7 +239,7 @@ class CrossPointSettings : public PersistableStore<CrossPointSettings> {
   static constexpr uint8_t SCREEN_MARGIN_MIN = 5;
   static constexpr uint8_t SCREEN_MARGIN_MAX = 40;
   static constexpr uint8_t SCREEN_MARGIN_STEP = 5;
-  uint8_t screenMargin = SCREEN_MARGIN_MIN;
+  uint8_t screenMargin = 20;
   // OPDS download destination folder ("" = SD root). Global; edited from the
   // OPDS server list. Persisted via a category-less SettingInfo::String in
   // SettingsList.h, so it stays out of the on-device Settings screen.
@@ -257,7 +258,9 @@ class CrossPointSettings : public PersistableStore<CrossPointSettings> {
   // Highlight markdown output layout (HIGHLIGHT_FILE_MODE values)
   uint8_t highlightFileMode = HIGHLIGHT_FILE_PER_BOOK;
   // UI Theme
-  uint8_t uiTheme = LYRA;
+  uint8_t uiTheme = READEST;
+  static constexpr uint8_t READEST_PRESET_VERSION = 1;
+  uint8_t readestPresetVersion = READEST_PRESET_VERSION;
   // Sunlight fading compensation
   uint8_t fadingFix = 0;
   // Power button return from footnotes (1 = enabled, 0 = disabled)
@@ -353,6 +356,7 @@ class CrossPointSettings : public PersistableStore<CrossPointSettings> {
   static const char* getFilePath() { return "/.crosspoint/settings.json"; }
   void toJson(JsonDocument& doc) const;
   bool fromJson(JsonVariantConst doc);
+  bool applyReadestPresetIfNeeded();
 
   static void validateFrontButtonMapping(CrossPointSettings& settings);
   static uint8_t sleepTimeoutEnumToMinutes(uint8_t legacyValue);

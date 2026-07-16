@@ -11,6 +11,7 @@
 
 #include <ReadestProgressSidecar.h>
 #include <AtomicFileReplace.h>
+#include <ReadestLibraryOwnership.h>
 #include "../activities/reader/ReadestProgressStore.h"
 #include "util/BookCacheUtils.h"
 #include "util/TaskWatchdog.h"
@@ -243,6 +244,9 @@ void WebDAVHandler::raw(WebServer& server, const String& uri, HTTPRaw& raw) {
           _putOk = false;
         }
       }
+      if (_putOk && isReadestManagedBook(_putPath)) {
+        ReadestProgressStore::removeDuplicateRootBooks(_putPath.c_str());
+      }
     }
     if (!_putOk && !_putValidated) {
       String tempPath = _putPath + ".davtmp";
@@ -266,10 +270,10 @@ bool WebDAVHandler::flushPutBuffer() {
     return false;
   }
 
-  esp_task_wdt_reset();
+  resetTaskWatchdogIfSubscribed();
   const size_t buffered = _putBufferSize;
   const size_t written = _putFile.write(_transferBuffer.data(), buffered);
-  esp_task_wdt_reset();
+  resetTaskWatchdogIfSubscribed();
   _putBufferSize = 0;
   return written == buffered;
 }
@@ -976,6 +980,13 @@ String WebDAVHandler::getRequestPath(WebServer& s) const {
     result = result.substring(0, result.length() - 1);
   }
 
+  const std::string canonical = ReadestProgress::canonicalRootBookPath(result.c_str());
+  if (canonical != result.c_str() && !Storage.exists(result.c_str()) && Storage.exists(canonical.c_str()) &&
+      ReadestProgressStore::getManifestOwnership(result.c_str()) ==
+          ReadestProgressStore::ManifestOwnership::Owned) {
+    result = canonical.c_str();
+  }
+
   return result;
 }
 
@@ -1005,6 +1016,13 @@ String WebDAVHandler::getDestinationPath(WebServer& s) const {
   // Remove trailing slash unless root
   if (result.length() > 1 && result.endsWith("/")) {
     result = result.substring(0, result.length() - 1);
+  }
+
+  const std::string canonical = ReadestProgress::canonicalRootBookPath(result.c_str());
+  if (canonical != result.c_str() && !Storage.exists(result.c_str()) && Storage.exists(canonical.c_str()) &&
+      ReadestProgressStore::getManifestOwnership(result.c_str()) ==
+          ReadestProgressStore::ManifestOwnership::Owned) {
+    result = canonical.c_str();
   }
 
   return result;

@@ -9,12 +9,15 @@
 #include <Txt.h>
 #include <Xtc.h>
 
+#include <cstdio>
+
 #include "CrossPointSettings.h"
 #include "CrossPointState.h"
+#include "RecentBooksStore.h"
 #include "activities/reader/ReaderUtils.h"
 #include "components/UITheme.h"
+#include "components/themes/readest/ReadestLayout.h"
 #include "fontIds.h"
-#include "images/Logo120.h"
 #include "images/MoonIcon.h"
 
 void SleepActivity::onEnter() {
@@ -159,9 +162,15 @@ void SleepActivity::renderDefaultSleepScreen() const {
   const auto pageHeight = renderer.getScreenHeight();
 
   renderer.clearScreen();
-  renderer.drawImage(Logo120, (pageWidth - 120) / 2, (pageHeight - 120) / 2, 120, 120);
-  renderer.drawCenteredText(UI_10_FONT_ID, pageHeight / 2 + 70, tr(STR_CROSSPOINT), true, EpdFontFamily::BOLD);
-  renderer.drawCenteredText(SMALL_FONT_ID, pageHeight / 2 + 95, tr(STR_SLEEPING));
+  constexpr int ruleWidth = 180;
+  constexpr int ruleGap = 28;
+  const int brandY = pageHeight / 2 - renderer.getLineHeight(NOTOSERIF_18_FONT_ID);
+  renderer.drawLine((pageWidth - ruleWidth) / 2, brandY - ruleGap, (pageWidth + ruleWidth) / 2, brandY - ruleGap);
+  renderer.drawCenteredText(NOTOSERIF_18_FONT_ID, brandY, tr(STR_READEST), true, EpdFontFamily::BOLD);
+  renderer.drawLine((pageWidth - ruleWidth) / 2, brandY + renderer.getLineHeight(NOTOSERIF_18_FONT_ID) + ruleGap,
+                    (pageWidth + ruleWidth) / 2, brandY + renderer.getLineHeight(NOTOSERIF_18_FONT_ID) + ruleGap);
+  renderer.drawCenteredText(SMALL_FONT_ID, brandY + renderer.getLineHeight(NOTOSERIF_18_FONT_ID) + ruleGap + 18,
+                            tr(STR_SLEEPING));
 
   // Make sleep screen dark unless light is selected in settings
   if (SETTINGS.sleepScreen != CrossPointSettings::SLEEP_SCREEN_MODE::LIGHT) {
@@ -319,15 +328,66 @@ void SleepActivity::renderCoverSleepScreen() const {
 
   HalFile file;
   if (Storage.openFileForRead("SLP", coverBmpPath, file)) {
-    Bitmap bitmap(file);
+    const bool isReadest = SETTINGS.uiTheme == CrossPointSettings::UI_THEME::READEST;
+    const bool useReadestLayout =
+        isReadest && SETTINGS.sleepScreenCoverMode == CrossPointSettings::SLEEP_SCREEN_COVER_MODE::FIT &&
+        SETTINGS.sleepScreenCoverFilter == CrossPointSettings::SLEEP_SCREEN_COVER_FILTER::BLACK_AND_WHITE;
+    Bitmap bitmap(file, useReadestLayout);
     if (bitmap.parseHeaders() == BmpReaderError::Ok) {
       LOG_DBG("SLP", "Rendering sleep cover: %s", coverBmpPath.c_str());
-      renderBitmapSleepScreen(bitmap);
+      if (useReadestLayout) {
+        const RecentBook* currentBook = nullptr;
+        for (const auto& recentBook : RECENT_BOOKS.getBooks()) {
+          if (recentBook.path == APP_STATE.openEpubPath) {
+            currentBook = &recentBook;
+            break;
+          }
+        }
+        renderReadestCoverSleepScreen(bitmap, currentBook);
+      } else {
+        renderBitmapSleepScreen(bitmap);
+      }
       return;
     }
   }
 
   return (this->*renderNoCoverSleepScreen)();
+}
+
+void SleepActivity::renderReadestCoverSleepScreen(const Bitmap& bitmap, const RecentBook* recentBook) const {
+  const int progressPercent = recentBook != nullptr ? recentBook->progressPercent : -1;
+  const auto layout = ReadestLayout::layoutSleepCover(renderer.getScreenWidth(), renderer.getScreenHeight(),
+                                                       bitmap.getWidth(), bitmap.getHeight(), progressPercent);
+
+  renderer.clearScreen();
+  renderer.drawBitmap(bitmap, layout.cover.x, layout.cover.y, layout.cover.width, layout.cover.height);
+  renderer.drawRect(layout.cover.x - 1, layout.cover.y - 1, layout.cover.width + 2, layout.cover.height + 2);
+  renderer.drawLine(layout.lineX, layout.lineY, layout.lineX + layout.lineWidth, layout.lineY);
+
+  if (progressPercent >= 0) {
+    if (layout.progressWidth > 0) {
+      renderer.fillRect(layout.lineX, layout.lineY - 1, layout.progressWidth, 3);
+    }
+
+    char progressText[24];
+    snprintf(progressText, sizeof(progressText), "%d%%", progressPercent);
+    renderer.drawText(SMALL_FONT_ID, layout.lineX, layout.textY, progressText);
+  } else {
+    renderer.drawText(SMALL_FONT_ID, layout.lineX, layout.textY, tr(STR_READEST));
+  }
+
+  if (recentBook != nullptr && recentBook->minutesLeftInChapter >= 0) {
+    char timeText[48];
+    snprintf(timeText, sizeof(timeText), tr(STR_MIN_LEFT_IN_CHAPTER_FORMAT), recentBook->minutesLeftInChapter);
+    const int timeX = layout.lineX + layout.lineWidth - renderer.getTextWidth(SMALL_FONT_ID, timeText);
+    renderer.drawText(SMALL_FONT_ID, timeX, layout.textY, timeText);
+  } else {
+    const char* sleepingText = tr(STR_SLEEPING);
+    const int sleepingX = layout.lineX + layout.lineWidth - renderer.getTextWidth(SMALL_FONT_ID, sleepingText);
+    renderer.drawText(SMALL_FONT_ID, sleepingX, layout.textY, sleepingText);
+  }
+
+  renderer.displayBuffer(HalDisplay::HALF_REFRESH);
 }
 
 void SleepActivity::renderLastScreenSleepScreen() const {

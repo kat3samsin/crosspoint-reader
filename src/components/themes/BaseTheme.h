@@ -23,6 +23,11 @@ struct TabInfo {
   bool selected;
 };
 
+struct ReaderFooterInfo {
+  int sessionStartPage = 0;
+  int minutesLeftInChapter = -1;
+};
+
 struct ThemeMetrics {
   int batteryWidth;
   int batteryHeight;
@@ -213,10 +218,11 @@ class BaseTheme {
   virtual void drawOptionPopup(const GfxRenderer& renderer, const char* title, const std::vector<std::string>& options,
                                int selectedIndex) const;
   virtual void fillPopupProgress(const GfxRenderer& renderer, const Rect& layout, const int progress) const;
-  void drawStatusBar(GfxRenderer& renderer, const float bookProgress, const int currentPage, const int pageCount,
-                     std::string title, const int paddingBottom = 0, const int textYOffset = 0,
-                     const bool fillMargin = true, const bool isPageBookmarked = false,
-                     const bool pageCountEstimated = false) const;
+  virtual void drawStatusBar(GfxRenderer& renderer, const float bookProgress, const int currentPage,
+                             const int pageCount, std::string title, const int paddingBottom = 0,
+                             const int textYOffset = 0, const bool fillMargin = true,
+                             const bool isPageBookmarked = false, const bool pageCountEstimated = false,
+                             ReaderFooterInfo footerInfo = {}) const;
   void drawHelpText(const GfxRenderer& renderer, Rect rect, const char* label) const;
   virtual void drawTextField(const GfxRenderer& renderer, Rect rect, const int textWidth, bool cursorMode = false,
                              int contentStartX = 0, int contentWidth = 0) const;
@@ -226,4 +232,9 @@ class BaseTheme {
   static constexpr int batteryPercentSpacing = 4;
   static void drawBatteryOutline(const GfxRenderer& renderer, int x, int y, int battWidth, int rectHeight);
   static void drawBatteryLightningBolt(const GfxRenderer& renderer, int boltX, int boltY);
+
+ protected:
+  static constexpr int bookmarkStatusIconWidth = 16;
+  static constexpr int bookmarkStatusIconGap = 4;
+  static void drawBookmarkStatusIcon(const GfxRenderer& renderer, int x, int y);
 };

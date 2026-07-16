@@ -91,6 +91,11 @@ void CrossPointSettings::toJson(JsonDocument& doc) const {
   // option lists depend on the SD font registry), so the generic loop skips them.
   doc["fontFamily"] = fontFamily;
   doc["fontSize"] = fontPointSize;
+  // This marker also distinguishes legacy Readest theme value 3 from
+  // upstream's RoundedRaff value 3 during migration.
+  if (uiTheme == READEST) {
+    doc["readestPresetVersion"] = readestPresetVersion;
+  }
   // SD card font family name — not in SettingsList, save manually
   if (sdFontFamilyName[0] != '\0') {
     doc["sdFontFamilyName"] = sdFontFamilyName;
@@ -103,6 +108,33 @@ void CrossPointSettings::toJson(JsonDocument& doc) const {
   // Language -- managed by LanguageSelectActivity, not in SettingsList.
   // Stored as ISO code string ("EN", "DE", ...) for stability across enum reorders.
   doc["language"] = (language < getLanguageCount()) ? LANGUAGE_CODES[language] : "EN";
+}
+
+bool CrossPointSettings::applyReadestPresetIfNeeded() {
+  if (uiTheme != READEST || readestPresetVersion >= READEST_PRESET_VERSION) {
+    return false;
+  }
+
+  fontFamily = NOTOSERIF;
+  sdFontFamilyName[0] = '\0';
+  fontPointSize = DEFAULT_FONT_POINT_SIZE;
+  lineSpacing = NORMAL;
+  paragraphAlignment = BOOK_STYLE;
+  screenMargin = 20;
+  extraParagraphSpacing = 0;
+  embeddedStyle = 1;
+  textAntiAliasing = 1;
+  sleepScreen = COVER;
+  sleepScreenCoverMode = FIT;
+  sleepScreenCoverFilter = BLACK_AND_WHITE;
+  statusBarChapterPageCount = 1;
+  statusBarBookProgressPercentage = 1;
+  statusBarProgressBar = HIDE_PROGRESS;
+  statusBarTitle = HIDE_TITLE;
+  statusBarBattery = 0;
+  statusBarClock = STATUS_BAR_CLOCK_HIDE;
+  readestPresetVersion = READEST_PRESET_VERSION;
+  return true;
 }
 
 bool CrossPointSettings::fromJson(JsonVariantConst doc) {
@@ -215,6 +247,19 @@ bool CrossPointSettings::fromJson(JsonVariantConst doc) {
   }
   // Dictionary folder name — uses dynamic getter/setter in SettingsList, load manually
   copyToField(dictionaryName, doc["dictionaryName"] | "", sizeof(dictionaryName));
+
+  const bool hasReadestMarker = !doc["readestPresetVersion"].isNull();
+  if (hasReadestMarker && uiTheme == ROUNDEDRAFF) {
+    uiTheme = READEST;
+    needsResave = true;
+  }
+
+  readestPresetVersion = doc["readestPresetVersion"] | static_cast<uint8_t>(0);
+  if (readestPresetVersion > READEST_PRESET_VERSION) {
+    readestPresetVersion = READEST_PRESET_VERSION;
+    needsResave = true;
+  }
+  if (applyReadestPresetIfNeeded()) needsResave = true;
 
   // Language -- stored as code string for stability across enum reorders.
   if (doc["language"].is<const char*>()) {

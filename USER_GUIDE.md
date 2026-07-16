@@ -179,10 +179,10 @@ The Settings screen allows you to configure the device's behavior. There are a f
 
 - **Sleep Screen**: Which sleep screen to display when the device sleeps:
   
-  - "Dark" (default) - The default dark Crosspoint logo sleep screen
-  - "Light" - The same default sleep screen, on a white background
+  - "Dark" - The Readest sleep screen on a dark background
+  - "Light" - The Readest sleep screen on a white background
   - "Custom" - Custom images from the SD card; see [Sleep Screen](#37-sleep-screen) below for more information
-  - "Cover" - The book cover image (Note: this is experimental and may not work as expected)
+  - "Cover" (default) - The current book cover image, falling back to the Readest sleep screen
   - "None" - A blank screen
   - "Cover + Custom" - The book cover image while actively reading, falls back to "Custom" behavior otherwise
   - "Quick resume" - The text of the last page read will be displayed on the sleep screen and a moon icon is shown on the edge of the screen. Waking up the device will return to the same page of the opened book. This is useful for quickly resuming reading without waiting for the device to fully wake up and load the book.
@@ -194,20 +194,13 @@ The Settings screen allows you to configure the device's behavior. There are a f
 
 - **Sleep Screen Cover Filter**: What filter will be applied to the book cover when "Cover" sleep screen is selected:
   
-  - "None" (default) - The cover image will be converted to a grayscale image and displayed as it is
-  - "Contrast" - The image will be displayed as a black & white image without grayscale conversion
+  - "None" - The cover image will be converted to a grayscale image and displayed as it is
+  - "Contrast" (default) - The image will be displayed as a black & white image without grayscale conversion
   - "Inverted" - The image will be inverted as in white & black and will be displayed without grayscale conversion
 
 - **Quick Resume on Timeout**: Whether to enable the "Quick Resume" sleep screen when the device goes to sleep due to inactivity (System > Time to Sleep). This is useful for quickly resuming reading without waiting for the device to fully wake up and load the book. This overwrites the Sleep Screen Cover Mode when enabled.
 
-- **Status Bar**: Configure the status bar displayed while reading:
-  
-  - "None" - No status bar
-  - "No Progress" - Show status bar without reading progress
-  - "Full w/ Percentage" - Show status bar with book progress (as percentage)
-  - "Full w/ Book Bar" - Show status bar with book progress (as bar)
-  - "Book Bar Only" - Show book progress (as bar)
-  - "Full w/ Chapter Bar" - Show status bar with chapter progress (as bar)
+- **Status Bar**: Configure the individual elements displayed while reading. Readest defaults to chapter page count on the left and book percentage on the right; title, battery, clock, and progress bar remain hidden for a quieter page.
 
 - **Hide Battery %**: Configure where to suppress the battery percentage display in the status bar; the battery icon will still be shown:
   
@@ -223,6 +216,7 @@ The Settings screen allows you to configure the device's behavior. There are a f
   - "Lyra" - The new theme for Crosspoint featuring rounded elements and menu icons
   - "Lyra Extended" - Lyra, but displays 3 books instead of 1 on the **[Home Screen](#31-home-screen)**
   - "RoundedRaff" - A rounded theme with additional visual styling
+  - "Readest" - A book-first, Kindle-inspired e-ink theme
 
 - **Sunlight Fading Fix**: Configure whether to enable a software-fix for the issue where white X4 models may fade when used in direct sunlight:
   
@@ -243,9 +237,9 @@ The Settings screen allows you to configure the device's behavior. There are a f
 
 - **Reader Line Spacing**: Adjust the spacing between lines; options are "Tight", "Normal" (default), or "Wide".
 
-- **Reader Screen Margin**: Controls the screen margins in Reading Mode between 5 and 40 pixels in 5-pixel increments.
+- **Reader Screen Margin**: Controls the screen margins in Reading Mode between 5 and 40 pixels in 5-pixel increments. Readest defaults to 20 pixels.
 
-- **Reader Paragraph Alignment**: Set the alignment of paragraphs; options are "Justified" (default), "Left", "Center", or "Right".
+- **Reader Paragraph Alignment**: Set the alignment of paragraphs; options are "Justified", "Left", "Center", "Right", or "Book Style" (default), which follows the EPUB's formatting.
 
 - **Embedded Style**: Whether to use the EPUB file's embedded HTML and CSS stylisation and formatting; options are "ON" or "OFF".
 
@@ -261,7 +255,7 @@ The Settings screen allows you to configure the device's behavior. There are a f
 - **Extra Paragraph Spacing**: Set how to handle paragraph breaks:
   
   - "ON" - Vertical space will be added between paragraphs in Reading Mode
-  - "OFF" - Paragraphs will not have vertical space added, but will have first-line indentation
+  - "OFF" (default) - Paragraphs will not have vertical space added, but will have first-line indentation
 
 - **Dictionary**: Select the StarDict dictionary used for word lookups while reading, or "None" to disable lookups. *(Only shown when at least one dictionary folder exists under `/dictionaries/` on the SD card — see [docs/dictionary.md](docs/dictionary.md) for setup and usage.)*
 
@@ -500,10 +494,10 @@ The **Sleep Screen** setting controls what is displayed when the device goes to 
 
 | Mode               | Behavior                                                                                                                     |
 | ------------------ | ---------------------------------------------------------------------------------------------------------------------------- |
-| **Dark** (default) | The CrossPoint logo on a dark background.                                                                                    |
-| **Light**          | The CrossPoint logo on a white background.                                                                                   |
+| **Dark**           | The Readest sleep screen on a dark background.                                                                               |
+| **Light**          | The Readest sleep screen on a white background.                                                                              |
 | **Custom**         | A custom image from the SD card (see below). Falls back to **Dark** if no custom image is found.                             |
-| **Cover**          | The cover of the currently open book. Falls back to **Dark** if no book is open.                                             |
+| **Cover** (default) | The current book cover. Falls back to the Readest sleep screen if no book is open.                                          |
 | **Cover + Custom** | The cover of the currently open book, shown only while actively reading. Falls back to **Custom** behavior when not reading. |
 | **None**           | A blank screen.                                                                                                              |
 

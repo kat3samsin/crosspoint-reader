@@ -22,12 +22,12 @@ namespace {
 constexpr int homeMenuMargin = 20;
 constexpr int homeMarginTop = 30;
 constexpr int subtitleY = 738;
-constexpr int bookmarkStatusIconWidth = 16;
 constexpr int bookmarkStatusIconHeight = 14;
-constexpr int bookmarkStatusIconGap = 4;
 constexpr int bookmarkStatusIconTopCrop = 2;
 
-void drawBookmarkStatusIcon(const GfxRenderer& renderer, const int x, const int y) {
+}  // namespace
+
+void BaseTheme::drawBookmarkStatusIcon(const GfxRenderer& renderer, const int x, const int y) {
   constexpr int bytesPerRow = bookmarkStatusIconWidth / 8;
   for (int row = 0; row < bookmarkStatusIconHeight; ++row) {
     for (int col = 0; col < bookmarkStatusIconWidth; ++col) {
@@ -37,8 +37,6 @@ void drawBookmarkStatusIcon(const GfxRenderer& renderer, const int x, const int 
     }
   }
 }
-
-}  // namespace
 
 void BaseTheme::drawBatteryOutline(const GfxRenderer& renderer, int x, int y, int battWidth, int rectHeight) {
   // Top line
@@ -781,7 +779,9 @@ void BaseTheme::fillPopupProgress(const GfxRenderer& renderer, const Rect& layou
 
 void BaseTheme::drawStatusBar(GfxRenderer& renderer, const float bookProgress, const int currentPage,
                               const int pageCount, std::string title, const int paddingBottom, const int textYOffset,
-                              const bool fillMargin, const bool isPageBookmarked, const bool pageCountEstimated) const {
+                              const bool fillMargin, const bool isPageBookmarked, const bool pageCountEstimated,
+                              const ReaderFooterInfo footerInfo) const {
+  (void)footerInfo;
   auto metrics = UITheme::getInstance().getMetrics();
   int orientedMarginTop, orientedMarginRight, orientedMarginBottom, orientedMarginLeft;
   renderer.getOrientedViewableTRBL(&orientedMarginTop, &orientedMarginRight, &orientedMarginBottom,

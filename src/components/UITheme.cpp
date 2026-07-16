@@ -13,6 +13,7 @@
 #include "components/themes/BaseTheme.h"
 #include "components/themes/lyra/Lyra3CoversTheme.h"
 #include "components/themes/lyra/LyraTheme.h"
+#include "components/themes/readest/ReadestTheme.h"
 #include "components/themes/roundedraff/RoundedRaffTheme.h"
 
 UITheme UITheme::instance;
@@ -43,6 +44,11 @@ void UITheme::setTheme(CrossPointSettings::UI_THEME type) {
       LOG_DBG("UI", "Using RoundedRaff theme");
       currentTheme = std::make_unique<RoundedRaffTheme>();
       currentMetrics = &RoundedRaffMetrics::values;
+      break;
+    case CrossPointSettings::UI_THEME::READEST:
+      LOG_DBG("UI", "Using Readest theme");
+      currentTheme = std::make_unique<ReadestTheme>();
+      currentMetrics = &ReadestMetrics::values;
       break;
     case CrossPointSettings::UI_THEME::LYRA_3_COVERS:
       LOG_DBG("UI", "Using Lyra 3 Covers theme");
@@ -149,6 +155,10 @@ int UITheme::getStatusBarHeight() {
   const ThemeMetrics metrics = UITheme::getInstance().getMetrics();
   const auto sb = SETTINGS.statusBarSpec();
 
+  if (SETTINGS.uiTheme == CrossPointSettings::UI_THEME::READEST) {
+    return metrics.statusBarVerticalMargin;
+  }
+
   // Layout reservation is hardware-agnostic: pass clockAvailable=true so the
   // reserved height does not depend on whether an RTC is present.
   return (sb.textLaneVisible(true) ? (metrics.statusBarVerticalMargin) : 0) +
@@ -158,6 +168,9 @@ int UITheme::getStatusBarHeight() {
 int UITheme::getProgressBarHeight() {
   const ThemeMetrics metrics = UITheme::getInstance().getMetrics();
   const auto sb = SETTINGS.statusBarSpec();
+  if (SETTINGS.uiTheme == CrossPointSettings::UI_THEME::READEST) {
+    return 0;
+  }
   return sb.showsProgressBar() ? (sb.progressBarHeightPx + metrics.progressBarMarginTop) : 0;
 }
 

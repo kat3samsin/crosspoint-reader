@@ -5,7 +5,16 @@
 #include <MD5Builder.h>
 
 #include <AtomicFileReplace.h>
+#include <FsHelpers.h>
+#include <KOReaderDocumentId.h>
 #include <ReadestLibraryOwnership.h>
+
+#include <algorithm>
+#include <functional>
+
+#include "CrossPointState.h"
+#include "RecentBooksStore.h"
+#include "util/TaskWatchdog.h"
 
 namespace ReadestProgressStore {
 namespace {
@@ -66,6 +75,45 @@ bool writeAtomic(const std::string& path, const std::string& json) {
   if (!readBoundedFile(temporaryPath, verified) || verified != json) return false;
   StorageFileSystem fileSystem;
   return AtomicFileReplace::replace(temporaryPath, path, path + ".bak", fileSystem);
+}
+
+bool isRootEpubPath(const std::string_view path) {
+  return path.size() > 6 && path.front() == '/' && path.find('/', 1) == std::string_view::npos &&
+         FsHelpers::hasEpubExtension(path);
+}
+
+std::string bookCachePath(const std::string& path) {
+  return "/.crosspoint/epub_" + std::to_string(std::hash<std::string>{}(path));
+}
+
+void migrateBookPathState(const std::string& oldPath, const std::string& newPath) {
+  if (oldPath == newPath) return;
+
+  const std::string oldCachePath = bookCachePath(oldPath);
+  const std::string newCachePath = bookCachePath(newPath);
+  if (Storage.exists(oldCachePath.c_str())) {
+    if (!Storage.exists(newCachePath.c_str())) {
+      if (!Storage.rename(oldCachePath.c_str(), newCachePath.c_str())) {
+        LOG_ERR("RPS", "Failed to migrate book cache: %s", oldCachePath.c_str());
+      }
+    } else if (!Storage.removeDir(oldCachePath.c_str())) {
+      LOG_ERR("RPS", "Failed to remove duplicate book cache: %s", oldCachePath.c_str());
+    }
+  }
+
+  const auto& recentBooks = RECENT_BOOKS.getBooks();
+  const bool canonicalAlreadyRecent =
+      std::any_of(recentBooks.begin(), recentBooks.end(), [&](const RecentBook& book) { return book.path == newPath; });
+  if (canonicalAlreadyRecent) {
+    RECENT_BOOKS.removeByPath(oldPath);
+  } else {
+    RECENT_BOOKS.updatePath(oldPath, newPath, oldCachePath, newCachePath);
+  }
+
+  if (APP_STATE.openEpubPath == oldPath) {
+    APP_STATE.openEpubPath = newPath;
+    APP_STATE.saveToFile();
+  }
 }
 
 }  // namespace
@@ -169,6 +217,54 @@ ManifestOwnership getManifestOwnership(const std::string_view rootBookPath) {
   file.close();
   if (scanner.hasError()) return ManifestOwnership::Unknown;
   return scanner.ownsBook() ? ManifestOwnership::Owned : ManifestOwnership::Unowned;
+}
+
+void removeDuplicateRootBooks(const std::string_view canonicalPath) {
+  if (!isRootEpubPath(canonicalPath)) return;
+  if (getManifestOwnership(canonicalPath) != ManifestOwnership::Owned) return;
+
+  const std::string requestedPath(canonicalPath);
+  const std::string simplePath = ReadestProgress::canonicalRootBookPath(canonicalPath);
+  const std::string sourcePath = Storage.exists(simplePath.c_str()) ? simplePath : requestedPath;
+  if (!Storage.exists(sourcePath.c_str())) return;
+
+  resetTaskWatchdogIfSubscribed();
+  const std::string canonicalDocument = KOReaderDocumentId::calculate(sourcePath);
+  if (canonicalDocument.empty()) return;
+
+  bool canonicalReady = sourcePath == simplePath || Storage.exists(simplePath.c_str());
+  if (sourcePath != simplePath && !canonicalReady) {
+    canonicalReady = Storage.rename(sourcePath.c_str(), simplePath.c_str());
+    if (canonicalReady) {
+      migrateBookPathState(sourcePath, simplePath);
+      LOG_INF("RPS", "Renamed Readest book to canonical path: %s", simplePath.c_str());
+    }
+  }
+  if (!canonicalReady) return;
+
+  HalFile root = Storage.open("/");
+  if (!root || !root.isDirectory()) return;
+
+  char name[500];
+  for (HalFile entry = root.openNextFile(); entry; entry = root.openNextFile()) {
+    entry.getName(name, sizeof(name));
+    const std::string candidatePath = std::string("/") + name;
+    const bool candidateIsFile = !entry.isDirectory();
+    entry.close();
+    if (!candidateIsFile || candidatePath == simplePath || !isRootEpubPath(candidatePath)) continue;
+    if (ReadestProgress::canonicalRootBookPath(candidatePath) != simplePath) continue;
+
+    resetTaskWatchdogIfSubscribed();
+    if (KOReaderDocumentId::calculate(candidatePath) == canonicalDocument) {
+      migrateBookPathState(candidatePath, simplePath);
+      LOG_INF("RPS", "Removing duplicate Readest book: %s (kept %s)", candidatePath.c_str(),
+              simplePath.c_str());
+      if (!Storage.remove(candidatePath.c_str())) {
+        LOG_ERR("RPS", "Failed to remove duplicate Readest book: %s", candidatePath.c_str());
+      }
+    }
+  }
+  root.close();
 }
 
 }  // namespace ReadestProgressStore

@@ -13,6 +13,7 @@
 #include "ProgressMapper.h"
 #include <ReadestProgressSidecar.h>
 #include "activities/Activity.h"
+#include "components/themes/readest/ReadestLayout.h"
 
 class EpubReaderActivity final : public Activity {
   std::shared_ptr<Epub> epub;
@@ -131,9 +132,15 @@ class EpubReaderActivity final : public Activity {
   ReadestProgress::LocalProgressPosition pendingReadestPosition;
   bool pendingReadestBinarySaved = false;
 
+  int readestSessionStartSpine = -1;
+  int readestSessionStartPage = 0;
+  ReadestLayout::ReadingPace readestReadingPace;
+  int latestBookProgressPercent = -1;
+  int latestMinutesLeftInChapter = -1;
+
   void renderContents(std::unique_ptr<Page> page, int orientedMarginTop, int orientedMarginRight,
                       int orientedMarginBottom, int orientedMarginLeft);
-  void renderStatusBar() const;
+  void renderStatusBar();
   // Pages laid out per incremental-build pump: on the render path (catching up to the page
   // being shown) and per loop() tick (background build of a large chapter). Kept small so a
   // background build chunk never noticeably delays input or a pending render.

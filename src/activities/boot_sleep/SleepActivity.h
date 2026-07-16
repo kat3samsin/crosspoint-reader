@@ -2,6 +2,7 @@
 #include "activities/Activity.h"
 
 class Bitmap;
+struct RecentBook;
 
 class SleepActivity final : public Activity {
  public:
@@ -13,6 +14,7 @@ class SleepActivity final : public Activity {
   void renderDefaultSleepScreen() const;
   void renderCustomSleepScreen() const;
   void renderCoverSleepScreen() const;
+  void renderReadestCoverSleepScreen(const Bitmap& bitmap, const RecentBook* recentBook) const;
   void renderBitmapSleepScreen(const Bitmap& bitmap) const;
   void renderLastScreenSleepScreen() const;
   void renderBlankSleepScreen() const;

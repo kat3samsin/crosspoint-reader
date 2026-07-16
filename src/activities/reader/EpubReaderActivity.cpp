@@ -292,6 +292,10 @@ void EpubReaderActivity::onExit() {
 
   persistReadestProgressOnExit(exitPosition);
 
+  if (epub && latestBookProgressPercent >= 0) {
+    RECENT_BOOKS.updateProgress(epub->getPath(), latestBookProgressPercent, latestMinutesLeftInChapter);
+  }
+
   section.reset();
   if (pendingReadFolderMove && epub) {
     const std::string srcPath = epub->getPath();
@@ -1277,6 +1281,8 @@ void EpubReaderActivity::toggleAutoPageTurn(const uint8_t selectedPageTurnOption
 }
 
 void EpubReaderActivity::pageTurn(bool isForwardTurn) {
+  ReadestLayout::recordPageTurn(readestReadingPace, millis(),
+                                isForwardTurn && footnoteDepth == 0 && !automaticPageTurnActive);
 #ifdef ENABLE_PERF_BENCHMARK
   const int fromPage = section->currentPage;
 #endif
@@ -2278,13 +2284,29 @@ void EpubReaderActivity::renderContents(std::unique_ptr<Page> page, const int or
   }
 }
 
-void EpubReaderActivity::renderStatusBar() const {
+void EpubReaderActivity::renderStatusBar() {
   // Calculate progress in book. Use the estimated total while a giant spine is still building so
   // "page X of Y" and the progress bar don't read off the small build watermark.
   const int currentPage = section->currentPage + 1;
   const float pageCount = section->estimatedTotalPages();
   const float sectionChapterProg = (pageCount > 0) ? (static_cast<float>(currentPage) / pageCount) : 0;
   const float bookProgress = epub->calculateProgress(currentSpineIndex, sectionChapterProg) * 100;
+
+  if (readestSessionStartSpine < 0) {
+    readestSessionStartSpine = currentSpineIndex;
+    readestSessionStartPage = currentPage;
+    ReadestLayout::beginReadingPace(readestReadingPace, millis());
+  }
+
+  int sessionStartPage = 0;
+  if (currentSpineIndex == readestSessionStartSpine) {
+    sessionStartPage = readestSessionStartPage;
+  } else if (currentSpineIndex > readestSessionStartSpine) {
+    sessionStartPage = 1;
+  }
+  latestBookProgressPercent = clampPercent(static_cast<int>(bookProgress + 0.5f));
+  latestMinutesLeftInChapter =
+      ReadestLayout::estimateMinutesLeft(readestReadingPace, currentPage, static_cast<int>(pageCount));
 
   std::string title;
 
@@ -2315,7 +2337,7 @@ void EpubReaderActivity::renderStatusBar() const {
   }
 
   GUI.drawStatusBar(renderer, bookProgress, currentPage, pageCount, title, 0, textYOffset, true, currentPageBookmarked,
-                    section->isBuilding());
+                    section->isBuilding(), {sessionStartPage, latestMinutesLeftInChapter});
 }
 
 void EpubReaderActivity::navigateToHref(const std::string& hrefStr, const bool savePosition) {
