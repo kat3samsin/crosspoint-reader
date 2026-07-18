@@ -33,14 +33,14 @@ bool checkFooterLayout() {
   constexpr int PERCENTAGE_TEXT_WIDTH = 22;
   constexpr int BOOKMARK_WIDTH = 16;
   constexpr int BOOKMARK_GAP = 4;
-  const auto layout = ReadestLayout::layoutReaderFooter(480, 800, 34, 5, 0, 0, 0, 0, PAGE_TEXT_WIDTH,
+  const auto layout = ReadestLayout::layoutReaderFooter(480, 800, 34, 20, 0, 0, 0, 0, PAGE_TEXT_WIDTH,
                                                         PERCENTAGE_TEXT_WIDTH, 4, 18, 2, true, BOOKMARK_WIDTH,
                                                         BOOKMARK_GAP);
-  const bool positioned = layout.pageX == 6 && layout.valueX == 453 && layout.bookmarkX == 46 &&
-                          layout.markerX == 30 && layout.textY == 779 && layout.lineX == 6 &&
-                          layout.lineY == 771 && layout.lineWidth == 468 && layout.progressWidth == 104;
+  const bool positioned = layout.pageX == 21 && layout.valueX == 438 && layout.bookmarkX == 61 &&
+                          layout.markerX == 43 && layout.textY == 779 && layout.lineX == 21 &&
+                          layout.lineY == 771 && layout.lineWidth == 438 && layout.progressWidth == 97;
   const bool separated = layout.bookmarkX + BOOKMARK_WIDTH + BOOKMARK_GAP <= layout.valueX;
-  const auto narrowLayout = ReadestLayout::layoutReaderFooter(80, 120, 34, 5, 0, 0, 0, 0, PAGE_TEXT_WIDTH,
+  const auto narrowLayout = ReadestLayout::layoutReaderFooter(80, 120, 34, 20, 0, 0, 0, 0, PAGE_TEXT_WIDTH,
                                                               PERCENTAGE_TEXT_WIDTH, 4, 18, 2, true, BOOKMARK_WIDTH,
                                                               BOOKMARK_GAP);
   const bool suppressesCollidingBookmark = narrowLayout.bookmarkX == -1;
@@ -72,6 +72,18 @@ bool checkReadingPace() {
   return true;
 }
 
+bool checkHomeStatsLayout() {
+  const auto layout = ReadestLayout::layoutHomeStats(600);
+  const bool fits = layout.y == 536 && layout.height == 52 && layout.summaryTextY == 546 &&
+                    layout.progressBarY == 568;
+  if (fits) {
+    return true;
+  }
+
+  std::cerr << "Home stats layout failed\n";
+  return false;
+}
+
 bool checkSleepCoverLayout() {
   const auto layout = ReadestLayout::layoutSleepCover(480, 800, 400, 600, 37);
   const bool passed = layout.cover.x == 40 && layout.cover.y == 61 && layout.cover.width == 400 &&
@@ -95,6 +107,7 @@ int main() {
   passed &= checkLayout("missing cover", 0, 0, 150, 250);
   passed &= checkFooterLayout();
   passed &= checkReadingPace();
+  passed &= checkHomeStatsLayout();
   passed &= checkSleepCoverLayout();
   return passed ? 0 : 1;
 }

@@ -32,7 +32,6 @@ DIMENSION_KEYS = {
 CACHE_STATES = frozenset({"hit", "miss", "unknown"})
 PAGE_DIRECTIONS = frozenset({"forward", "backward"})
 PAGE_REFRESH_MODES = frozenset({"fast", "half"})
-PAGE_FONT_SIZES = frozenset({0, 1, 2, 3})
 AUTOMATED_PAGE_TURN_COUNT = 20
 AUTOMATED_PAGE_TURN_SETTLE_MS = 3000
 PAGE_TURN_START_RE = re.compile(
@@ -154,8 +153,8 @@ def _validate_scenario_fields(
         from_page = _require_uint32(fields, "from_page")
         to_page = _require_uint32(fields, "to_page")
         font_size = _require_uint32(fields, "font_size")
-        if font_size not in PAGE_FONT_SIZES:
-            raise PerfRecordError("font_size must be one of: 0, 1, 2, 3")
+        if font_size < 1 or font_size > 0xFF:
+            raise PerfRecordError("font_size must be between 1 and 255")
         _require_bool(fields, "text_antialiasing")
         _require_enum(fields, "refresh_mode", PAGE_REFRESH_MODES)
         direction = fields["direction"]

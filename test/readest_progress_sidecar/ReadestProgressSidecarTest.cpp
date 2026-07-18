@@ -254,18 +254,16 @@ TEST(ReadestLibraryOwnership, MatchesOnlyTheExactManifestOwnedRootBook) {
   EXPECT_FALSE(ReadestProgress::manifestOwnsRootBook(manifest, "/read/Witchcraft for Wayward Girls.epub"));
 }
 
-TEST(ReadestLibraryOwnership, CanonicalizesReadestFingerprintSuffixes) {
-  EXPECT_EQ(ReadestProgress::canonicalRootBookPath("/My Friends-1549f3b.epub"), "/My Friends.epub");
-  EXPECT_EQ(ReadestProgress::canonicalRootBookPath("/My Friends.epub"), "/My Friends.epub");
-  EXPECT_EQ(ReadestProgress::canonicalRootBookPath("/My Friends-1549f3b.txt"), "/My Friends-1549f3b.txt");
-  EXPECT_EQ(ReadestProgress::canonicalRootBookPath("/Books/My Friends-1549f3b.epub"),
-            "/Books/My Friends-1549f3b.epub");
-}
-
-TEST(ReadestLibraryOwnership, MatchesHashedManifestPathFromCanonicalBookPath) {
-  constexpr std::string_view manifest =
+TEST(ReadestLibraryOwnership, KeepsFingerprintSuffixedAndTitleOnlyPathsDistinct) {
+  constexpr std::string_view suffixedManifest =
       R"({"version":1,"books":{"first":{"path":"/My Friends-1549f3b.epub","size":10,"revision":1,"state":"active"}}})";
-  EXPECT_TRUE(ReadestProgress::manifestOwnsRootBook(manifest, "/My Friends.epub"));
+  EXPECT_TRUE(ReadestProgress::manifestOwnsRootBook(suffixedManifest, "/My Friends-1549f3b.epub"));
+  EXPECT_FALSE(ReadestProgress::manifestOwnsRootBook(suffixedManifest, "/My Friends.epub"));
+  EXPECT_FALSE(ReadestProgress::manifestOwnsRootBook(suffixedManifest, "/My Friends-7654321.epub"));
+
+  constexpr std::string_view titleOnlyManifest =
+      R"({"version":1,"books":{"first":{"path":"/My Friends.epub","size":10,"revision":1,"state":"active"}}})";
+  EXPECT_FALSE(ReadestProgress::manifestOwnsRootBook(titleOnlyManifest, "/My Friends-1549f3b.epub"));
 }
 
 TEST(ReadestLibraryOwnership, RejectsNestedManifestTargets) {

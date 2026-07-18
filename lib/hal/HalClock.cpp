@@ -7,6 +7,28 @@
 
 HalClock halClock;  // Singleton instance
 
+namespace {
+
+int64_t daysFromCivil(int year, const unsigned month, const unsigned day) {
+  year -= month <= 2;
+  const int era = (year >= 0 ? year : year - 399) / 400;
+  const unsigned yearOfEra = static_cast<unsigned>(year - era * 400);
+  const unsigned dayOfYear = (153 * (month + (month > 2 ? -3 : 9)) + 2) / 5 + day - 1;
+  const unsigned dayOfEra = yearOfEra * 365 + yearOfEra / 4 - yearOfEra / 100 + dayOfYear;
+  return era * 146097LL + static_cast<int64_t>(dayOfEra) - 719468LL;
+}
+
+bool isValidDate(const int year, const uint8_t month, const uint8_t day) {
+  static constexpr uint8_t DAYS_PER_MONTH[] = {31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31};
+  if (year < 2020 || year > 2199 || month < 1 || month > 12 || day < 1) return false;
+  uint8_t maxDay = DAYS_PER_MONTH[month - 1];
+  const bool leapYear = year % 4 == 0 && (year % 100 != 0 || year % 400 == 0);
+  if (month == 2 && leapYear) maxDay = 29;
+  return day <= maxDay;
+}
+
+}  // namespace
+
 void HalClock::begin() {
   _available = _sdkRtc.begin();
   LOG_INF("CLK", _available ? "SDK RTC found" : "RTC not found");
@@ -36,6 +58,22 @@ bool HalClock::getTime(uint8_t& hour, uint8_t& minute) const {
   _hasCachedTime = true;
   hour = _cachedHour;
   minute = _cachedMinute;
+  return true;
+}
+
+bool HalClock::getEpoch(time_t& epoch) const {
+  epoch = 0;
+  if (!_available) return false;
+
+  freeink::Rtc::DateTime dt;
+  if (!_sdkRtc.now(dt) || !isValidDate(dt.year, dt.month, dt.day) || dt.hour > 23 || dt.minute > 59 ||
+      dt.second > 59) {
+    return false;
+  }
+
+  epoch = static_cast<time_t>(daysFromCivil(dt.year, dt.month, dt.day) * 86400LL +
+                              static_cast<int64_t>(dt.hour) * 3600 + static_cast<int64_t>(dt.minute) * 60 +
+                              dt.second);
   return true;
 }
 

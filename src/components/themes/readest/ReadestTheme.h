@@ -28,11 +28,11 @@ constexpr ThemeMetrics values = {.batteryWidth = 15,
                                  .homeRecentBooksCount = 3,
                                  .homeContinueReadingInMenu = true,
                                  .homeMenuTopOffset = 12,
-                                 .buttonHintsHeight = 32,
+                                 .buttonHintsHeight = 40,
                                  .sideButtonHintsWidth = 30,
                                  .progressBarHeight = 16,
                                  .progressBarMarginTop = 1,
-                                 .statusBarHorizontalMargin = 5,
+                                 .statusBarHorizontalMargin = 20,
                                  .statusBarVerticalMargin = 34,
                                  .keyboardKeyHeight = 30,
                                  .keyboardKeySpacing = 10,
@@ -85,10 +85,11 @@ class ReadestTheme : public BaseTheme {
                      ReaderFooterInfo footerInfo = {}) const override;
   void drawRecentBookCover(GfxRenderer& renderer, Rect rect, const std::vector<RecentBook>& recentBooks,
                            int selectorIndex, bool& coverRendered, bool& coverBufferStored, bool& bufferRestored,
-                           std::function<bool()> storeCoverBuffer) const override;
+                           std::function<bool()> storeCoverBuffer, int selectionOverride = -1) const override;
   void drawButtonMenu(GfxRenderer& renderer, Rect rect, int buttonCount, int selectedIndex,
                       const std::function<std::string(int index)>& buttonLabel,
-                      const std::function<UIIcon(int index)>& rowIcon) const override;
+                      const std::function<UIIcon(int index)>& rowIcon,
+                      const std::function<std::string(int index)>& rowValue = nullptr) const override;
   void drawTextField(const GfxRenderer& renderer, Rect rect, int textWidth, bool cursorMode = false,
                      int contentStartX = 0, int contentWidth = 0) const override;
   int getListRowStep(bool hasSubtitle) const override;

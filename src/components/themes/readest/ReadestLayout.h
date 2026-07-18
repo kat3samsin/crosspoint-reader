@@ -33,6 +33,24 @@ struct ReaderFooterLayout {
   int progressWidth;
 };
 
+struct HomeStatsLayout {
+  int y;
+  int height;
+  int summaryTextY;
+  int progressBarY;
+};
+
+constexpr HomeStatsLayout layoutHomeStats(int actionY) {
+  const int height = 52;
+  const int y = actionY - 12 - height;
+  return {
+      .y = y,
+      .height = height,
+      .summaryTextY = y + 10,
+      .progressBarY = y + 32,
+  };
+}
+
 constexpr ReaderFooterLayout layoutReaderFooter(int screenWidth, int screenHeight, int statusBarHeight,
                                                 int horizontalMargin, int orientedLeft, int orientedRight,
                                                 int orientedBottom, int paddingBottom, int pageTextWidth,

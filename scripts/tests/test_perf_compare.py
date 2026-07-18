@@ -48,7 +48,7 @@ def record(
     spine_index=2,
     from_page=None,
     to_page=None,
-    font_size=3,
+    font_size=14,
     text_antialiasing=True,
     refresh_mode="fast",
 ):
@@ -191,7 +191,7 @@ class PerfCompareTest(unittest.TestCase):
         payload = report("baseline", [100_000] * 20)
         with tempfile.TemporaryDirectory() as directory:
             path = pathlib.Path(directory) / "report.json"
-            payload["benchmark_context"]["page_turn_in_section"]["font_size"] = 2
+            payload["benchmark_context"]["page_turn_in_section"]["font_size"] = 12
             path.write_text(json.dumps(payload), encoding="utf-8")
             with self.assertRaisesRegex(PerfReportError, "context does not match"):
                 load_report(path)
@@ -213,7 +213,7 @@ class PerfCompareTest(unittest.TestCase):
         key = ("page_turn_in_section", ())
         baseline_context = {
             "page_turn_in_section": {
-                "font_size": 3,
+                "font_size": 14,
                 "text_antialiasing": True,
                 "trace": [
                     {
@@ -247,7 +247,7 @@ class PerfCompareTest(unittest.TestCase):
             )
 
         candidate_context = json.loads(json.dumps(baseline_context))
-        candidate_context["page_turn_in_section"]["font_size"] = 2
+        candidate_context["page_turn_in_section"]["font_size"] = 12
         with self.assertRaisesRegex(PerfReportError, "context must match"):
             compare_reports(
                 grouped_report(

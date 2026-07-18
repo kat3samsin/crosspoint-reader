@@ -393,7 +393,7 @@ maximum-size streamed sync.
 Firmware:
 
 - `src/BookmarkEntry.h`
-- `src/JsonSettingsIO.cpp`
+- `src/CrossPointSettings.cpp`
 - `src/activities/reader/EpubReaderActivity.cpp`
 - `src/activities/reader/EpubReaderBookmarksActivity.cpp`
 - `src/network/WebDAVPathPolicy.*`

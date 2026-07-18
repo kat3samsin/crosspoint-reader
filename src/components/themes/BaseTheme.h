@@ -208,12 +208,21 @@ class BaseTheme {
                           bool selected) const;
   virtual bool tabIndexFromPoint(const GfxRenderer& renderer, Rect rect, const std::vector<TabInfo>& tabs, int x, int y,
                                  int& index) const;
+  // selectionOverride: -1 = derive the "selected" state from whether selectorIndex is in
+  // range (legacy behaviour); 0 = force unselected; 1 = force selected. Lets a caller show
+  // an in-range book (correct metadata/cover) while the tile is not the active selection.
   virtual void drawRecentBookCover(GfxRenderer& renderer, Rect rect, const std::vector<RecentBook>& recentBooks,
                                    const int selectorIndex, bool& coverRendered, bool& coverBufferStored,
-                                   bool& bufferRestored, std::function<bool()> storeCoverBuffer) const;
+                                   bool& bufferRestored, std::function<bool()> storeCoverBuffer,
+                                   int selectionOverride = -1) const;
   virtual void drawButtonMenu(GfxRenderer& renderer, Rect rect, int buttonCount, int selectedIndex,
                               const std::function<std::string(int index)>& buttonLabel,
-                              const std::function<UIIcon(int index)>& rowIcon) const;
+                              const std::function<UIIcon(int index)>& rowIcon,
+                              const std::function<std::string(int index)>& rowValue = nullptr) const;
+  // Horizontal row of equal-width quick-action cells within `rect`. `selectedIndex < 0` renders every
+  // cell at rest. Default: bordered cells with solid-black inverted selection (Classic/Lyra inherit it).
+  virtual void drawQuickActionRow(const GfxRenderer& renderer, Rect rect, int count, int selectedIndex,
+                                  const std::function<std::string(int index)>& cellLabel) const;
   virtual Rect drawPopup(const GfxRenderer& renderer, const char* message) const;
   virtual void drawOptionPopup(const GfxRenderer& renderer, const char* title, const std::vector<std::string>& options,
                                int selectedIndex) const;

@@ -44,7 +44,7 @@ Markdown clipping files are append-only. Deleting the visible highlight does not
 
 See [Dictionary setup](./docs/dictionary.md) for the SD-card layout and controls.
 
-### Book settings with the real page as preview
+### Text settings with the real page as preview
 
 The upper half keeps text from the current page visible. The lower half changes:
 
@@ -108,7 +108,7 @@ In **Dictionary + Highlight** mode, a short Confirm press handles highlighting a
 ### Change book typography
 
 1. Short-press **Confirm** from the reading page.
-2. Open **Book settings**.
+2. Open **Settings**.
 3. Use **Up** and **Down** to select a row.
 4. Use **Left** and **Right** to see the setting on the current-page preview.
 5. Press **Done** to return to the book.

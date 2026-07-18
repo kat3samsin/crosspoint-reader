@@ -528,6 +528,16 @@ const std::string& Epub::getCachePath() const { return cachePath; }
 
 const std::string& Epub::getPath() const { return filepath; }
 
+bool Epub::readMetadata(BookMetadataCache::BookMetadata& metadata) {
+  BookMetadataCache cache(cachePath);
+  if (Storage.exists((cachePath + "/book.bin").c_str()) && cache.load()) {
+    metadata = cache.coreMetadata;
+    return true;
+  }
+  setupCacheDir();
+  return parseContentOpf(metadata, false);
+}
+
 const std::string& Epub::getTitle() const {
   static std::string blank;
   if (!bookMetadataCache || !bookMetadataCache->isLoaded()) {

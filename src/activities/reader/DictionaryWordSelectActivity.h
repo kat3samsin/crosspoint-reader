@@ -76,7 +76,6 @@ class DictionaryWordSelectActivity final : public Activity {
   bool saveHighlight();
   int selectedSavedRange() const;
   void deleteSelectedHighlight();
-  void drawHighlightControls();
   bool drawHighlightWithSnapshot();
   void drawHints() const;
   void paintWordBox(int idx, bool highlighted, int rangeLo, int rangeHi);

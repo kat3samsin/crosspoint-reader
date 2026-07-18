@@ -27,7 +27,8 @@ class EpubReaderMenuActivity final : public Activity {
     GO_HOME,
     SYNC,
     DELETE_CACHE,
-    DICTIONARY
+    DICTIONARY,
+    MORE  // Opens the tier-3 "More" submenu in-place; never returned to the reader.
   };
 
   explicit EpubReaderMenuActivity(GfxRenderer& renderer, MappedInputManager& mappedInput, const std::string& title,
@@ -46,13 +47,33 @@ class EpubReaderMenuActivity final : public Activity {
     StrId labelId;
   };
 
-  static std::vector<MenuItem> buildMenuItems(bool hasFootnotes, bool hasBookmarks);
+  // The active zone within the two-tier menu. In the More submenu the zone is always List.
+  enum class Zone { Quick, List };
+
+  // Tier 2 (the familiar list) and tier 3 (the "More" submenu) are built once at construction.
+  static std::vector<MenuItem> buildListItems(bool hasFootnotes, bool hasBookmarks);
+  static std::vector<MenuItem> buildMoreItems();
+
+  const std::vector<MenuItem>& currentList() const { return inMoreSubmenu ? moreItems : listItems; }
+  void activate(MenuAction action);
+  void openMoreSubmenu();
+  void closeMoreSubmenu();
+  std::string valueForRow(MenuAction action) const;
   void closeCancelled();
 
-  // Fixed menu layout
-  const std::vector<MenuItem> menuItems;
+  // Tier 1: fixed quick-action row (Toggle Bookmark, Chapters, Settings).
+  const std::array<MenuItem, 3> quickActions = {{{MenuAction::TOGGLE_BOOKMARK, StrId::STR_TOGGLE_BOOKMARK},
+                                                 {MenuAction::SELECT_CHAPTER, StrId::STR_MENU_CHAPTERS},
+                                                 {MenuAction::TEXT_SETTINGS, StrId::STR_MENU_SETTINGS}}};
 
-  int selectedIndex = 0;
+  // Tier 2 / tier 3 lists.
+  const std::vector<MenuItem> listItems;
+  const std::vector<MenuItem> moreItems;
+
+  Zone zone = Zone::Quick;   // Menu opens with the first quick action selected.
+  bool inMoreSubmenu = false;
+  int quickIndex = 0;        // Selected cell in the quick row (0..2).
+  int listIndex = 0;         // Selected row in the active list (tier 2 or tier 3).
 
   ButtonNavigator buttonNavigator;
   OptionPopup optionPopup;

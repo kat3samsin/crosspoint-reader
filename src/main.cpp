@@ -311,6 +311,14 @@ void setup() {
   HalSystem::checkPanic();
 
   SETTINGS.loadFromFile();
+  time_t clockEpoch = 0;
+  if (halClock.isAvailable() && SETTINGS.clockHasBeenSynced && !halClock.getEpoch(clockEpoch)) {
+    // Older firmware synced only the RTC's time-of-day registers. Re-arm the
+    // next Wi-Fi clock sync once so it also writes the calendar date required
+    // by Today/30-day reading stats.
+    SETTINGS.clockHasBeenSynced = 0;
+    SETTINGS.saveToFile();
+  }
   APP_STATE.loadFromFile();
   RECENT_BOOKS.loadFromFile();
   I18N.setLanguage(static_cast<Language>(SETTINGS.language));

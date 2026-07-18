@@ -2,6 +2,7 @@
 
 #include <Arduino.h>
 #include <Rtc.h>
+#include <time.h>
 
 class HalClock;
 extern HalClock halClock;  // Singleton
@@ -26,6 +27,10 @@ class HalClock {
   // Get current hour (0-23) and minute (0-59).
   // Returns false if RTC is not available.
   bool getTime(uint8_t& hour, uint8_t& minute) const;
+
+  // Read the full UTC date/time. Returns false when the RTC has no plausible
+  // calendar date yet.
+  bool getEpoch(time_t& epoch) const;
 
   // Format time into a caller-provided buffer.
   // 24h mode produces "HH:MM" (needs >=6 bytes); 12h mode produces "H:MM AM"/"HH:MM PM" (needs >=9 bytes).

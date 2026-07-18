@@ -1167,6 +1167,9 @@ void EpubReaderActivity::onReaderMenuConfirm(EpubReaderMenuActivity::MenuAction 
       addBookmark();
       break;
     }
+    case EpubReaderMenuActivity::MenuAction::MORE:
+      // Handled entirely within the menu activity; never returned to the reader.
+      break;
   }
 }
 
@@ -1324,7 +1327,7 @@ void EpubReaderActivity::pageTurn(bool isForwardTurn) {
 #ifdef ENABLE_PERF_BENCHMARK
     PerformanceBenchmark::beginPageTurn(
         isForwardTurn, static_cast<uint32_t>(currentSpineIndex), static_cast<uint32_t>(fromPage),
-        static_cast<uint32_t>(section->currentPage), SETTINGS.fontSize, SETTINGS.textAntiAliasing != 0);
+        static_cast<uint32_t>(section->currentPage), SETTINGS.fontPointSize, SETTINGS.textAntiAliasing != 0);
 #endif
   }
   lastPageTurnTime = millis();

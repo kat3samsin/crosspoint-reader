@@ -181,14 +181,15 @@ void ReadestTheme::drawStatusBar(GfxRenderer& renderer, const float bookProgress
 
 void ReadestTheme::drawRecentBookCover(GfxRenderer& renderer, Rect rect, const std::vector<RecentBook>& recentBooks,
                                        const int selectorIndex, bool& coverRendered, bool& coverBufferStored,
-                                       bool& bufferRestored, std::function<bool()> storeCoverBuffer) const {
+                                       bool& bufferRestored, std::function<bool()> storeCoverBuffer,
+                                       int selectionOverride) const {
   const bool hasContinueReading = !recentBooks.empty();
-  const int activeBookIndex =
-      hasContinueReading && selectorIndex >= 0 && selectorIndex < static_cast<int>(recentBooks.size())
-          ? selectorIndex
-          : 0;
-  const bool isSelected = hasContinueReading && selectorIndex >= 0 &&
-                          selectorIndex < static_cast<int>(recentBooks.size());
+  const bool indexInRange =
+      hasContinueReading && selectorIndex >= 0 && selectorIndex < static_cast<int>(recentBooks.size());
+  const int activeBookIndex = indexInRange ? selectorIndex : 0;
+  // selectionOverride (-1 = derive from index) lets the caller show an in-range book while
+  // the tile is not the active selection, so the metadata/cover never desync from book 0.
+  const bool isSelected = selectionOverride >= 0 ? selectionOverride != 0 : indexInRange;
   const int sidePadding = ReadestMetrics::values.contentSidePadding;
   const int tileX = rect.x + sidePadding;
   const int tileY = rect.y + 8;
@@ -277,36 +278,75 @@ void ReadestTheme::drawRecentBookCover(GfxRenderer& renderer, Rect rect, const s
                           ReadestMetrics::values.batteryHeight},
                      showBatteryPercentage);
 
+    // Compute where the block below the metadata begins BEFORE drawing the title/author,
+    // so both can be clamped to never overdraw it. The block below is the stats block when
+    // any stats are shown, otherwise the Continue Reading action bar. Deterministic geometry.
+    const int actionY = tileY + tileHeight - actionHeight;
+    const bool hasProgress = book.progressPercent >= 0;
+    const bool hasChapterTime = book.minutesLeftInChapter > 0;
+    const bool hasStatsBlock = hasProgress || hasChapterTime;
+    const int statsTop = hasStatsBlock ? ReadestLayout::layoutHomeStats(actionY).y : actionY;
+    const int metadataBottomLimit = statsTop - 4;  // 4px gap above whatever sits below.
+
     const int metadataY = coverAreaY + coverAreaHeight + 12;
     const auto titleLines = renderer.wrappedText(kTitleFontId, book.title.c_str(), tileWidth, 2);
+    const int titleLineHeight = renderer.getLineHeight(kTitleFontId);
     int textY = metadataY;
     for (const auto& line : titleLines) {
+      // Drop any title line (including a wrapped 2nd line) that would cross the block below.
+      if (textY + titleLineHeight > metadataBottomLimit) break;
       const int lineX =
           tileX + (tileWidth - renderer.getTextWidth(kTitleFontId, line.c_str(), EpdFontFamily::BOLD)) / 2;
       renderer.drawText(kTitleFontId, lineX, textY, line.c_str(), true, EpdFontFamily::BOLD);
-      textY += renderer.getLineHeight(kTitleFontId);
+      textY += titleLineHeight;
     }
     if (!book.author.empty()) {
-      textY += 4;
-      const auto author = renderer.truncatedText(kSubtitleFontId, book.author.c_str(), tileWidth);
-      const int authorX = tileX + (tileWidth - renderer.getTextWidth(kSubtitleFontId, author.c_str())) / 2;
-      renderer.drawText(kSubtitleFontId, authorX, textY, author.c_str());
-      textY += renderer.getLineHeight(kSubtitleFontId) + 6;
+      const int authorLineHeight = renderer.getLineHeight(kSubtitleFontId);
+      // Draw the author only when the whole line fits above the block below; else drop it.
+      if (textY + 4 + authorLineHeight <= metadataBottomLimit) {
+        textY += 4;
+        const auto author = renderer.truncatedText(kSubtitleFontId, book.author.c_str(), tileWidth);
+        const int authorX = tileX + (tileWidth - renderer.getTextWidth(kSubtitleFontId, author.c_str())) / 2;
+        renderer.drawText(kSubtitleFontId, authorX, textY, author.c_str());
+        textY += authorLineHeight + 6;
+      }
     }
 
-    char progressText[64] = {};
-    if (book.progressPercent >= 0 && book.minutesLeftInChapter > 0) {
-      std::snprintf(progressText, sizeof(progressText), tr(STR_READEST_PROGRESS_FORMAT), book.progressPercent,
-                    book.minutesLeftInChapter);
-    } else if (book.progressPercent >= 0) {
-      std::snprintf(progressText, sizeof(progressText), tr(STR_READEST_PROGRESS_ONLY_FORMAT), book.progressPercent);
-    }
-    if (progressText[0] != '\0') {
-      const int progressX = tileX + (tileWidth - renderer.getTextWidth(kSubtitleFontId, progressText)) / 2;
-      renderer.drawText(kSubtitleFontId, progressX, textY, progressText);
+    if (hasStatsBlock) {
+      constexpr int statColumnGap = 8;
+      constexpr int progressBarHeight = 6;
+      const auto statsLayout = ReadestLayout::layoutHomeStats(actionY);
+      const int statColumnWidth = (tileWidth - statColumnGap) / 2;
+
+      renderer.drawLine(tileX, statsLayout.y, tileX + tileWidth - 1, statsLayout.y, true);
+
+      if (hasProgress) {
+        char completionText[32];
+        std::snprintf(completionText, sizeof(completionText), tr(STR_READEST_PROGRESS_ONLY_FORMAT),
+                      book.progressPercent);
+        const auto completion = renderer.truncatedText(kSubtitleFontId, completionText, statColumnWidth);
+        renderer.drawText(kSubtitleFontId, tileX, statsLayout.summaryTextY, completion.c_str());
+      }
+
+      if (hasChapterTime) {
+        char chapterTimeText[48];
+        std::snprintf(chapterTimeText, sizeof(chapterTimeText), tr(STR_MIN_LEFT_IN_CHAPTER_FORMAT),
+                      book.minutesLeftInChapter);
+        const auto chapterTime = renderer.truncatedText(kSubtitleFontId, chapterTimeText, statColumnWidth);
+        const int chapterTimeX = tileX + tileWidth - renderer.getTextWidth(kSubtitleFontId, chapterTime.c_str());
+        renderer.drawText(kSubtitleFontId, chapterTimeX, statsLayout.summaryTextY, chapterTime.c_str());
+      }
+
+      if (hasProgress) {
+        renderer.drawRect(tileX, statsLayout.progressBarY, tileWidth, progressBarHeight);
+        const int fillWidth = (tileWidth - 4) * std::clamp(book.progressPercent, 0, 100) / 100;
+        if (fillWidth > 0) {
+          renderer.fillRect(tileX + 2, statsLayout.progressBarY + 2, fillWidth, progressBarHeight - 4);
+        }
+      }
+
     }
 
-    const int actionY = tileY + tileHeight - actionHeight;
     if (isSelected) {
       renderer.fillRect(tileX, actionY, tileWidth, actionHeight);
     }
@@ -326,7 +366,8 @@ void ReadestTheme::drawRecentBookCover(GfxRenderer& renderer, Rect rect, const s
 
 void ReadestTheme::drawButtonMenu(GfxRenderer& renderer, Rect rect, int buttonCount, int selectedIndex,
                                   const std::function<std::string(int index)>& buttonLabel,
-                                  const std::function<UIIcon(int index)>& rowIcon) const {
+                                  const std::function<UIIcon(int index)>& rowIcon,
+                                  const std::function<std::string(int index)>& rowValue) const {
   (void)rowIcon;
   const int sidePadding = ReadestMetrics::values.contentSidePadding;
   const int rowX = rect.x + sidePadding;
@@ -343,9 +384,6 @@ void ReadestTheme::drawButtonMenu(GfxRenderer& renderer, Rect rect, int buttonCo
   for (int i = pageStartIndex; i < buttonCount && i < pageStartIndex + pageItems; ++i) {
     const std::string label = buttonLabel(i);
     const int rowY = menuTop + (i - pageStartIndex) * rowStep;
-    const int maxLabelWidth = std::max(0, menuMaxWidth - kInteractiveInsetX * 2);
-    const std::string truncatedLabel =
-        renderer.truncatedText(kTitleFontId, label.c_str(), maxLabelWidth, EpdFontFamily::REGULAR);
     const int rowWidth = menuMaxWidth;
     const bool isSelected = selectedIndex == i;
     if (isSelected) {
@@ -355,6 +393,22 @@ void ReadestTheme::drawButtonMenu(GfxRenderer& renderer, Rect rect, int buttonCo
     }
     const int textY = rowY + (rowHeight - textLineHeight) / 2;
     const int textX = rowX + kInteractiveInsetX;
+
+    // Optional right-aligned value (e.g. book count). Regular weight, inverted when
+    // the row is selected; its width is subtracted from the label truncation budget.
+    int maxLabelWidth = std::max(0, menuMaxWidth - kInteractiveInsetX * 2);
+    if (rowValue) {
+      const std::string valueText = rowValue(i);
+      if (!valueText.empty()) {
+        const int valueW = renderer.getTextWidth(kTitleFontId, valueText.c_str(), EpdFontFamily::REGULAR);
+        renderer.drawText(kTitleFontId, rowX + rowWidth - kInteractiveInsetX - valueW, textY, valueText.c_str(),
+                          !isSelected, EpdFontFamily::REGULAR);
+        maxLabelWidth = std::max(0, maxLabelWidth - valueW - kInteractiveInsetX);
+      }
+    }
+
+    const std::string truncatedLabel =
+        renderer.truncatedText(kTitleFontId, label.c_str(), maxLabelWidth, EpdFontFamily::REGULAR);
     renderer.drawText(kTitleFontId, textX, textY, truncatedLabel.c_str(), !isSelected,
                       isSelected ? EpdFontFamily::BOLD : EpdFontFamily::REGULAR);
   }

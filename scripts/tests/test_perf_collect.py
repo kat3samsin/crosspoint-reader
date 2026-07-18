@@ -100,7 +100,7 @@ def page_record(
     spine_index=2,
     from_page=10,
     to_page=11,
-    font_size=3,
+    font_size=14,
     text_antialiasing=True,
     refresh_mode="fast",
 ):
@@ -272,7 +272,7 @@ class PerfCollectTest(unittest.TestCase):
             "spine_index": -1,
             "from_page": True,
             "to_page": "11",
-            "font_size": 4,
+            "font_size": 0,
             "text_antialiasing": 1,
             "refresh_mode": "unknown",
         }
@@ -306,7 +306,7 @@ class PerfCollectTest(unittest.TestCase):
             ]
         )
         context = build_benchmark_context(valid)
-        self.assertEqual(context["page_turn_in_section"]["font_size"], 3)
+        self.assertEqual(context["page_turn_in_section"]["font_size"], 14)
         self.assertEqual(context["page_turn_in_section"]["trace"][1]["to_page"], 10)
         self.assertNotIn("iteration", context["page_turn_in_section"]["trace"][0])
 
@@ -320,7 +320,7 @@ class PerfCollectTest(unittest.TestCase):
             build_benchmark_context(gaps)
 
         for changed_field, changed_value in (
-            ("font_size", 2),
+            ("font_size", 12),
             ("text_antialiasing", False),
         ):
             kwargs = {changed_field: changed_value}

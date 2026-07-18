@@ -12,6 +12,8 @@ struct Rect;
 class HomeActivity final : public Activity {
   ButtonNavigator buttonNavigator;
   int selectorIndex = 0;
+  int readestBookIndex = 0;
+  int readestMenuIndex = 0;
   bool recentsLoading = false;
   bool recentsLoaded = false;
   bool hasOpdsServers = false;
@@ -31,6 +33,9 @@ class HomeActivity final : public Activity {
   int coverRectW = 0;
   int coverRectH = 0;
   std::vector<RecentBook> recentBooks;
+  // Cached count of indexed library books, shown on the Readest home Library row.
+  // Read once at onEnter from the library cache (no SD re-index); 0 hides the value.
+  size_t libraryBookCount = 0;
   const HomeMenuItem initialMenuItem;
 
   // Convert HomeMenuItem to menu index (used in onEnter)
@@ -72,7 +77,7 @@ class HomeActivity final : public Activity {
   void loadRecentBooks(int maxBooks);
   void loadRecentCovers(int coverHeight);
   bool isReadestHome() const;
-  void setReadestSelectorIndex(int index);
+  void setReadestBookIndex(int index);
   void renderReadestHome();
 
  public:

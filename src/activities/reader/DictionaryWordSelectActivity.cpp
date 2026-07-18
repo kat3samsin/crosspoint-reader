@@ -489,22 +489,6 @@ void DictionaryWordSelectActivity::deleteSelectedHighlight() {
   requestUpdate();
 }
 
-void DictionaryWordSelectActivity::drawHighlightControls() {
-  if (mode == Mode::Dictionary || words.empty()) {
-    drawHints();
-    return;
-  }
-  const char* back = anchor >= 0 ? tr(STR_CANCEL) : tr(STR_BACK);
-  const char* confirm = tr(STR_HIGHLIGHT_START);
-  if (anchor >= 0) {
-    confirm = tr(STR_HIGHLIGHT_SAVE);
-  } else if (selectedSavedRange() >= 0) {
-    confirm = tr(STR_DELETE);
-  }
-  const auto labels = mappedInput.mapLabels(back, confirm, tr(STR_DIR_LEFT), tr(STR_DIR_RIGHT));
-  GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4);
-}
-
 void DictionaryWordSelectActivity::loop() {
   if (popup == Popup::NotFound || popup == Popup::Error || popup == Popup::Saved || popup == Popup::Deleted) {
     if (millis() - popupTime >= POPUP_DURATION_MS) {
@@ -629,8 +613,15 @@ void DictionaryWordSelectActivity::drawHints() const {
     GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4);
     return;
   }
-  const auto labels = mappedInput.mapDirectionalLabels(tr(STR_BACK), tr(STR_LOOKUP), tr(STR_DIR_LEFT),
-                                                       tr(STR_DIR_RIGHT), tr(STR_DIR_UP), tr(STR_DIR_DOWN));
+  const char* back = tr(STR_BACK);
+  const char* confirm = tr(STR_LOOKUP);
+  if (mode != Mode::Dictionary) {
+    back = anchor >= 0 ? tr(STR_CANCEL) : tr(STR_BACK);
+    confirm = anchor >= 0 ? tr(STR_HIGHLIGHT_SAVE)
+                          : selectedSavedRange() >= 0 ? tr(STR_DELETE) : tr(STR_HIGHLIGHT_START);
+  }
+  const auto labels = mappedInput.mapDirectionalLabels(back, confirm, tr(STR_DIR_LEFT), tr(STR_DIR_RIGHT),
+                                                       tr(STR_DIR_UP), tr(STR_DIR_DOWN));
   GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4);
 }
 
@@ -687,7 +678,7 @@ void DictionaryWordSelectActivity::render(RenderLock&&) {
     }
     drawnLo = lo;
     drawnHi = hi;
-    drawHighlightControls();
+    drawHints();
     renderer.displayBuffer(HalDisplay::FAST_REFRESH);
     return;
   }
@@ -703,7 +694,7 @@ void DictionaryWordSelectActivity::render(RenderLock&&) {
     renderer.getFontCacheManager()->prewarmCache(
         fontId, words[selected].text, static_cast<uint8_t>(1u << (static_cast<uint8_t>(words[selected].style) & 0x03)));
     if (drawHighlightWithSnapshot()) {
-      drawHighlightControls();
+      drawHints();
       renderer.displayBuffer(HalDisplay::FAST_REFRESH);
       return;
     }
@@ -734,7 +725,7 @@ void DictionaryWordSelectActivity::render(RenderLock&&) {
     }
   }
 
-  drawHighlightControls();
+  drawHints();
 
   if (popup != Popup::None) {
     // The popup overdraws the page, so the snapshot no longer matches the

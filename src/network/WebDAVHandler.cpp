@@ -11,7 +11,6 @@
 
 #include <ReadestProgressSidecar.h>
 #include <AtomicFileReplace.h>
-#include <ReadestLibraryOwnership.h>
 #include "../activities/reader/ReadestProgressStore.h"
 #include "util/BookCacheUtils.h"
 #include "util/TaskWatchdog.h"
@@ -229,8 +228,9 @@ void WebDAVHandler::raw(WebServer& server, const String& uri, HTTPRaw& raw) {
     if (_putOk) {
       String tempPath = _putPath + ".davtmp";
       const auto progressKind = WebDAVPathPolicy::classifyProgressSidecar(_putPath.c_str());
+      const bool readestManagedBook = isReadestManagedBook(_putPath);
       if (progressKind == WebDAVPathPolicy::ProgressSidecarKind::ReadestOwned ||
-          isReadestLibraryManifest(_putPath) || isReadestManagedBook(_putPath)) {
+          isReadestLibraryManifest(_putPath) || readestManagedBook) {
         WebDAVStorageFileSystem fileSystem;
         _putOk = AtomicFileReplace::replace(
             tempPath.c_str(), _putPath.c_str(), std::string(_putPath.c_str()) + ".davbak", fileSystem);
@@ -243,9 +243,6 @@ void WebDAVHandler::raw(WebServer& server, const String& uri, HTTPRaw& raw) {
         } else {
           _putOk = false;
         }
-      }
-      if (_putOk && isReadestManagedBook(_putPath)) {
-        ReadestProgressStore::removeDuplicateRootBooks(_putPath.c_str());
       }
     }
     if (!_putOk && !_putValidated) {
@@ -980,13 +977,6 @@ String WebDAVHandler::getRequestPath(WebServer& s) const {
     result = result.substring(0, result.length() - 1);
   }
 
-  const std::string canonical = ReadestProgress::canonicalRootBookPath(result.c_str());
-  if (canonical != result.c_str() && !Storage.exists(result.c_str()) && Storage.exists(canonical.c_str()) &&
-      ReadestProgressStore::getManifestOwnership(result.c_str()) ==
-          ReadestProgressStore::ManifestOwnership::Owned) {
-    result = canonical.c_str();
-  }
-
   return result;
 }
 
@@ -1016,13 +1006,6 @@ String WebDAVHandler::getDestinationPath(WebServer& s) const {
   // Remove trailing slash unless root
   if (result.length() > 1 && result.endsWith("/")) {
     result = result.substring(0, result.length() - 1);
-  }
-
-  const std::string canonical = ReadestProgress::canonicalRootBookPath(result.c_str());
-  if (canonical != result.c_str() && !Storage.exists(result.c_str()) && Storage.exists(canonical.c_str()) &&
-      ReadestProgressStore::getManifestOwnership(result.c_str()) ==
-          ReadestProgressStore::ManifestOwnership::Owned) {
-    result = canonical.c_str();
   }
 
   return result;

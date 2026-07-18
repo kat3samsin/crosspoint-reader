@@ -466,7 +466,9 @@ bool BaseTheme::tabIndexFromPoint(const GfxRenderer& renderer, const Rect rect, 
 // TODO: Refactor method to make it cleaner, split into smaller methods
 void BaseTheme::drawRecentBookCover(GfxRenderer& renderer, Rect rect, const std::vector<RecentBook>& recentBooks,
                                     const int selectorIndex, bool& coverRendered, bool& coverBufferStored,
-                                    bool& bufferRestored, std::function<bool()> storeCoverBuffer) const {
+                                    bool& bufferRestored, std::function<bool()> storeCoverBuffer,
+                                    int selectionOverride) const {
+  (void)selectionOverride;  // This layout derives selection from selectorIndex only.
   const bool hasContinueReading = !recentBooks.empty();
   const bool bookSelected = hasContinueReading && selectorIndex == 0;
 
@@ -694,7 +696,10 @@ void BaseTheme::drawRecentBookCover(GfxRenderer& renderer, Rect rect, const std:
 
 void BaseTheme::drawButtonMenu(GfxRenderer& renderer, Rect rect, int buttonCount, int selectedIndex,
                                const std::function<std::string(int index)>& buttonLabel,
-                               const std::function<UIIcon(int index)>& rowIcon) const {
+                               const std::function<UIIcon(int index)>& rowIcon,
+                               const std::function<std::string(int index)>& rowValue) const {
+  // rowValue (right-aligned per-row value) is only rendered by ReadestTheme.
+  (void)rowValue;
   for (int i = 0; i < buttonCount; ++i) {
     const int tileY = BaseMetrics::values.verticalSpacing + rect.y +
                       static_cast<int>(i) * (BaseMetrics::values.menuRowHeight + BaseMetrics::values.menuSpacing);
@@ -718,6 +723,44 @@ void BaseTheme::drawButtonMenu(GfxRenderer& renderer, Rect rect, int buttonCount
         tileY + (BaseMetrics::values.menuRowHeight - lineHeight) / 2;  // vertically centered assuming y is top of text
     // Invert text when the tile is selected, to contrast with the filled background
     renderer.drawText(UI_10_FONT_ID, textX, textY, label, selectedIndex != i);
+  }
+}
+
+void BaseTheme::drawQuickActionRow(const GfxRenderer& renderer, Rect rect, int count, int selectedIndex,
+                                   const std::function<std::string(int index)>& cellLabel) const {
+  if (count <= 0) {
+    return;
+  }
+  const auto& metrics = UITheme::getInstance().getMetrics();
+  const int sidePadding = metrics.contentSidePadding;
+  constexpr int cellGap = 8;   // 8px gaps between cells (design contract 4px scale).
+  constexpr int textInset = 8;  // Horizontal breathing room for the centered label.
+
+  const int available = rect.width - sidePadding * 2 - cellGap * (count - 1);
+  if (available <= 0) {
+    return;
+  }
+  const int cellWidth = available / count;
+  const int cellHeight = rect.height;
+  const int lineHeight = renderer.getLineHeight(UI_12_FONT_ID);
+
+  for (int i = 0; i < count; ++i) {
+    const int cellX = rect.x + sidePadding + i * (cellWidth + cellGap);
+    const bool selected = i == selectedIndex;
+
+    if (selected) {
+      renderer.fillRect(cellX, rect.y, cellWidth, cellHeight);
+    } else {
+      renderer.drawRect(cellX, rect.y, cellWidth, cellHeight);
+    }
+
+    const std::string label = cellLabel(i);
+    const std::string truncated = renderer.truncatedText(UI_12_FONT_ID, label.c_str(), cellWidth - textInset * 2);
+    const int textWidth = renderer.getTextWidth(UI_12_FONT_ID, truncated.c_str());
+    const int textX = cellX + (cellWidth - textWidth) / 2;
+    const int textY = rect.y + (cellHeight - lineHeight) / 2;
+    // Invert the label when the cell is filled (selected) for white-on-black contrast.
+    renderer.drawText(UI_12_FONT_ID, textX, textY, truncated.c_str(), !selected);
   }
 }
 
